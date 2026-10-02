@@ -17,13 +17,15 @@ const products = [
 ];
 
 export const seedListings = products.map((p, index) => ({
-  id: `seed-${index + 1}`,
-  sellerId: 'demo-seller',
+  id: `00000000-0000-4000-8000-${String(index + 101).padStart(12, '0')}`,
+  sellerId: '00000000-0000-4000-8000-000000000002',
   category: p[0], brand: p[1], model: p[2], storageGb: p[3],
   condition: p[4], priceKrw: p[5], color: p[6], accessories: p[7],
   title: `${p[2]} ${p[3]}GB · ${p[6]}`,
   description: `${p[2]} ${p[3]}GB 모델입니다. 구성품: ${p[7]}. 제품 상태와 세부 사항은 판매자에게 확인해 주세요.`,
-  images: [], status: 'ACTIVE', publishedAt: new Date(Date.now() - index * 86400000).toISOString(),
+  images: [], status: 'ACTIVE', createdAt: new Date(Date.now() - index * 86400000).toISOString(),
+  updatedAt: new Date(Date.now() - index * 86400000).toISOString(),
+  publishedAt: new Date(Date.now() - index * 86400000).toISOString(),
   missingFields: index === 3 ? ['batteryHealth'] : [],
 }));
 
@@ -32,6 +34,6 @@ export function formatPrice(value) {
 }
 
 export function labelFor(field) {
-  return ({ category: '기기 종류', model: '모델', priceKrw: '가격', maxBudgetKrw: '최대 예산',
+  return ({ category: '기기 종류', model: '모델', modelQuery: '원하는 모델', priceKrw: '가격', maxBudgetKrw: '최대 예산',
     storageGb: '저장 용량', condition: '상태', accessories: '구성품', batteryHealth: '배터리 상태' })[field] || field;
 }

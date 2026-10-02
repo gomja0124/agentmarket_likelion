@@ -23,9 +23,9 @@ export function matchListings(listings, request) {
       else matchedFields.push('condition');
     }
     missingFields.push(...(item.missingFields || []));
-    return { id: `result-${item.id}`, listingId: item.id, listing: item,
+    return { id: crypto.randomUUID(), purchaseRequestId: request.id, listingId: item.id, listing: item,
       matchStatus: unmetFields.length ? 'EXCLUDED' : missingFields.length ? 'NEEDS_CONFIRMATION' : 'MATCH',
-      matchedFields, unmetFields, missingFields, ruleVersion: 'demo-1' };
+      matchedFields, unmetFields, missingFields: [...new Set(missingFields)], ruleVersion: 'demo-1', createdAt: new Date().toISOString() };
   }).filter(result => result.matchStatus !== 'EXCLUDED');
 }
 
@@ -35,4 +35,12 @@ export function listingMissing(draft) {
 
 export function requestMissing(request) {
   return ['category', 'maxBudgetKrw'].filter(key => !request[key] || (key === 'maxBudgetKrw' && Number(request[key]) <= 0));
+}
+
+export function unresolvedFields(value, required) {
+  const outstanding = (value.missingFields || []).filter(key => {
+    const field = value[key];
+    return field == null || field === '' || (Array.isArray(field) && field.length === 0);
+  });
+  return [...new Set([...outstanding, ...required(value)])];
 }
