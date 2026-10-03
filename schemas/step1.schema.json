@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentmarket.local/schemas/step1.schema.json",
+  "title": "Agent Market Step 1 shared data contract",
+  "$defs": {
+    "Uuid": { "type": "string", "format": "uuid" },
+    "Timestamp": { "type": "string", "format": "date-time" },
+    "Category": { "type": "string", "enum": ["PHONE", "TABLET"] },
+    "Source": { "type": "string", "enum": ["AGENT", "HUMAN"] },
+    "Condition": { "type": "string", "enum": ["LIKE_NEW", "GOOD", "FAIR"] },
+    "User": {
+      "type": "object",
+      "required": ["id", "nickname", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "nickname": { "type": "string", "minLength": 1 },
+        "createdAt": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "ListingDraft": {
+      "type": "object",
+      "required": ["id", "sellerId", "source", "category", "model", "priceKrw", "missingFields", "status", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "sellerId": { "$ref": "#/$defs/Uuid" },
+        "source": { "$ref": "#/$defs/Source" },
+        "title": { "type": ["string", "null"], "maxLength": 200 },
+        "description": { "type": ["string", "null"], "maxLength": 10000 },
+        "category": { "oneOf": [{ "$ref": "#/$defs/Category" }, { "type": "null" }] },
+        "brand": { "type": ["string", "null"], "maxLength": 100 },
+        "model": { "type": ["string", "null"], "maxLength": 200 },
+        "storageGb": { "type": ["integer", "null"], "minimum": 1 },
+        "condition": { "oneOf": [{ "$ref": "#/$defs/Condition" }, { "type": "null" }] },
+        "accessories": { "type": ["string", "null"], "maxLength": 2000 },
+        "priceKrw": { "type": ["integer", "null"], "minimum": 0 },
+        "images": { "type": "array", "items": { "type": "string" }, "maxItems": 20 },
+        "missingFields": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "nextQuestions": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["DRAFT", "READY_FOR_REVIEW", "PUBLISHED"] },
+        "sourceListingId": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "Listing": {
+      "type": "object",
+      "required": ["id", "sellerId", "draftId", "category", "model", "priceKrw", "images", "status", "publishedAt", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "sellerId": { "$ref": "#/$defs/Uuid" },
+        "draftId": { "$ref": "#/$defs/Uuid" },
+        "title": { "type": ["string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "category": { "$ref": "#/$defs/Category" },
+        "brand": { "type": ["string", "null"] },
+        "model": { "type": "string", "minLength": 1 },
+        "storageGb": { "type": ["integer", "null"], "minimum": 1 },
+        "condition": { "oneOf": [{ "$ref": "#/$defs/Condition" }, { "type": "null" }] },
+        "accessories": { "type": ["string", "null"] },
+        "priceKrw": { "type": "integer", "exclusiveMinimum": 0 },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "missingFields": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "publishedAt": { "$ref": "#/$defs/Timestamp" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "PurchaseRequest": {
+      "type": "object",
+      "required": ["id", "buyerId", "source", "category", "maxBudgetKrw", "conditionPreferences", "missingFields", "status", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "buyerId": { "$ref": "#/$defs/Uuid" },
+        "source": { "$ref": "#/$defs/Source" },
+        "category": { "oneOf": [{ "$ref": "#/$defs/Category" }, { "type": "null" }] },
+        "modelQuery": { "type": ["string", "null"], "maxLength": 200 },
+        "maxBudgetKrw": { "type": ["integer", "null"], "minimum": 0 },
+        "storageGb": { "type": ["integer", "null"], "minimum": 1 },
+        "conditionPreferences": { "type": "array", "items": { "$ref": "#/$defs/Condition" }, "uniqueItems": true },
+        "missingFields": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "nextQuestions": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["DRAFT", "CONFIRMED"] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "SearchResult": {
+      "type": "object",
+      "required": ["id", "purchaseRequestId", "listingId", "matchStatus", "matchedFields", "unmetFields", "missingFields", "ruleVersion", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "purchaseRequestId": { "$ref": "#/$defs/Uuid" },
+        "listingId": { "$ref": "#/$defs/Uuid" },
+        "listing": { "$ref": "#/$defs/Listing" },
+        "matchStatus": { "type": "string", "enum": ["MATCH", "NEEDS_CONFIRMATION", "EXCLUDED"] },
+        "matchedFields": { "type": "array", "items": { "type": "string" } },
+        "unmetFields": { "type": "array", "items": { "type": "string" } },
+        "missingFields": { "type": "array", "items": { "type": "string" } },
+        "ruleVersion": { "type": "string", "minLength": 1 },
+        "createdAt": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "AgentActionLog": {
+      "type": "object",
+      "required": ["id", "userId", "actionType", "targetType", "status", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "userId": { "$ref": "#/$defs/Uuid" },
+        "actionType": { "type": "string" },
+        "targetType": { "type": "string" },
+        "targetId": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "status": { "type": "string", "enum": ["SUCCEEDED", "FAILED"] },
+        "requestId": { "type": ["string", "null"] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "details": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
