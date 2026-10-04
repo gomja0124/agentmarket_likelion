@@ -4,8 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start:api": "node server/index.js",
-    "test": "node --test"
+    "start:api": "npm --prefix backend run start:api",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend test",
+    "demo:search": "npm --prefix backend run demo:search"
   },
   "engines": {
     "node": ">=22.5"

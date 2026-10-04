@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { Store } from './database.js';
 import { ApiError, forbidden, invalidState, notFound, validationError } from './errors.js';
 import { matchListings } from './matching.js';
+import { purchaseRequestResponse } from './purchase-api.js';
 import { DEMO_USER_ID } from './seed.js';
 import {
   CATEGORIES, CONDITIONS, listingMissing, normalizeListingDraft,
@@ -108,6 +109,9 @@ function categorySchema(category) {
     requiredFields: ['category', 'model', 'priceKrw'],
     optionalFields: ['title', 'description', 'brand', 'storageGb', 'condition', 'accessories', 'images'],
     questionHints: ['정확한 모델명은 무엇인가요?', '판매 가격은 얼마인가요?', '저장 용량과 제품 상태, 구성품을 알고 있나요?'],
+    purchaseRequiredFields: ['category', 'maxBudgetKrw'],
+    purchaseOptionalFields: ['modelQuery', 'storageGb', 'conditionPreferences'],
+    purchaseQuestionHints: ['최대 예산은 얼마인가요?', '원하는 모델 또는 모델군이 있나요?', '최소 저장 용량은 몇 GB인가요?'],
   };
 }
 
@@ -148,7 +152,13 @@ export function createApiServer({ dbPath, seed = true, store = new Store({ dbPat
         send(response, 200, store.listDraftsBySeller(context.userId)); return;
       }
       if (method === 'GET' && segments.join('/') === 'api/purchase-requests/mine') {
-        send(response, 200, store.listRequestsByBuyer(context.userId)); return;
+        send(response, 200, store.listRequestsByBuyer(context.userId).map(purchaseRequestResponse)); return;
+      }
+      if (method === 'GET' && segments.length === 3 && segments[0] === 'api' && segments[1] === 'purchase-requests') {
+        const value = store.getPurchaseRequest(segments[2]);
+        if (!value) throw notFound('구매 조건을 찾을 수 없습니다.');
+        requireOwner(value.buyerId, context);
+        send(response, 200, purchaseRequestResponse(value)); return;
       }
       if (method === 'GET' && segments.length === 3 && segments[0] === 'api' && segments[1] === 'listings') {
         const listing = store.getListing(segments[2]);
@@ -232,7 +242,7 @@ export function createApiServer({ dbPath, seed = true, store = new Store({ dbPat
         const purchaseRequest = runCommand(store, context, request, body, {
           actionType: 'CREATE_PURCHASE_REQUEST_DRAFT', targetType: 'PurchaseRequest', operation: path,
           targetId: result => result.id,
-        }, () => store.savePurchaseRequest(normalizePurchaseRequest(body, { userId: context.userId, actorType: context.actorType, now: now(), id: randomUUID() })));
+        }, () => purchaseRequestResponse(store.savePurchaseRequest(normalizePurchaseRequest(body, { userId: context.userId, actorType: context.actorType, now: now(), id: randomUUID() }))));
         send(response, 201, purchaseRequest); return;
       }
       if (method === 'PATCH' && segments.length === 3 && segments[0] === 'api' && segments[1] === 'purchase-requests') {
@@ -242,7 +252,7 @@ export function createApiServer({ dbPath, seed = true, store = new Store({ dbPat
         requireOwner(existing.buyerId, context);
         const updated = runCommand(store, context, request, body, {
           actionType: 'UPDATE_PURCHASE_REQUEST_DRAFT', targetType: 'PurchaseRequest', targetId: requestId, operation: path,
-        }, () => store.savePurchaseRequest(normalizePurchaseRequest(body, { existing, userId: context.userId, actorType: context.actorType, now: now(), id: requestId })));
+        }, () => purchaseRequestResponse(store.savePurchaseRequest(normalizePurchaseRequest(body, { existing, userId: context.userId, actorType: context.actorType, now: now(), id: requestId }))));
         send(response, 200, updated); return;
       }
       if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'purchase-requests' && segments[3] === 'confirm') {
@@ -256,10 +266,13 @@ export function createApiServer({ dbPath, seed = true, store = new Store({ dbPat
         if (missing.length) throw validationError('확정 전에 필수 구매 조건을 입력해 주세요.', { missingFields: missing });
         const confirmed = runCommand(store, context, request, body, {
           actionType: 'CONFIRM_PURCHASE_REQUEST', targetType: 'PurchaseRequest', targetId: requestId, operation: path,
-        }, () => store.confirmPurchaseRequest(requestId, now()));
+        }, () => purchaseRequestResponse(store.confirmPurchaseRequest(requestId, now())));
         send(response, 200, confirmed); return;
       }
       if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'purchase-requests' && segments[3] === 'search') {
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'requestId')) {
+          throw validationError('검색은 저장된 확정 조건만 사용합니다. 조건 변경은 PATCH API를 사용해 주세요.');
+        }
         const requestId = segments[2];
         const purchaseRequest = store.getPurchaseRequest(requestId);
         if (!purchaseRequest) throw notFound('구매 조건을 찾을 수 없습니다.');

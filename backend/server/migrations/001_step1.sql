@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS purchase_requests (
   max_budget_krw INTEGER CHECK (max_budget_krw IS NULL OR max_budget_krw >= 0),
   storage_gb INTEGER CHECK (storage_gb IS NULL OR storage_gb > 0),
   condition_preferences_json TEXT NOT NULL DEFAULT '[]',
+  skipped_question_fields_json TEXT NOT NULL DEFAULT '[]',
   missing_fields_json TEXT NOT NULL DEFAULT '[]',
   next_questions_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL CHECK (status IN ('DRAFT', 'CONFIRMED')),

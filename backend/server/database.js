@@ -57,6 +57,7 @@ function requestFromRow(row) {
     modelQuery: row.model_query, maxBudgetKrw: row.max_budget_krw, storageGb: row.storage_gb,
     conditionPreferences: parseJson(row.condition_preferences_json), missingFields: parseJson(row.missing_fields_json),
     nextQuestions: parseJson(row.next_questions_json), status: row.status,
+    skippedQuestionFields: parseJson(row.skipped_question_fields_json),
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -68,6 +69,9 @@ export class Store {
     this.db = new DatabaseSync(absolutePath);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.db.exec(readFileSync(migrationPath, 'utf8'));
+    if (!this.db.prepare('PRAGMA table_info(purchase_requests)').all().some(column => column.name === 'skipped_question_fields_json')) {
+      this.db.exec("ALTER TABLE purchase_requests ADD COLUMN skipped_question_fields_json TEXT NOT NULL DEFAULT '[]'");
+    }
     this.ensureUsers();
     if (seed) this.ensureSeedListings();
   }
@@ -186,15 +190,15 @@ export class Store {
   savePurchaseRequest(request) {
     const values = [request.id, request.buyerId, request.source, request.category, request.modelQuery,
       request.maxBudgetKrw, request.storageGb, json(request.conditionPreferences), json(request.missingFields),
-      json(request.nextQuestions), request.status, request.createdAt, request.updatedAt];
+      json(request.nextQuestions), request.status, request.createdAt, request.updatedAt, json(request.skippedQuestionFields)];
     this.db.prepare(`INSERT INTO purchase_requests
       (id, buyer_id, source, category, model_query, max_budget_krw, storage_gb, condition_preferences_json,
-       missing_fields_json, next_questions_json, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       missing_fields_json, next_questions_json, status, created_at, updated_at, skipped_question_fields_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET category=excluded.category, model_query=excluded.model_query,
        max_budget_krw=excluded.max_budget_krw, storage_gb=excluded.storage_gb,
        condition_preferences_json=excluded.condition_preferences_json, missing_fields_json=excluded.missing_fields_json,
-       next_questions_json=excluded.next_questions_json, status=excluded.status, updated_at=excluded.updated_at`).run(...values);
+       next_questions_json=excluded.next_questions_json, skipped_question_fields_json=excluded.skipped_question_fields_json, status=excluded.status, updated_at=excluded.updated_at`).run(...values);
     return this.getPurchaseRequest(request.id);
   }
 

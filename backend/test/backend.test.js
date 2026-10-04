@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApiServer } from '../server/app.js';
+import { RULE_VERSION } from '../server/matching.js';
 
 const demoUser = '00000000-0000-4000-8000-000000000001';
 const otherUser = '00000000-0000-4000-8000-000000000099';
@@ -120,7 +121,7 @@ test('purchase requests stay private, require human confirmation, and search is 
     assert.ok(results.value.length > 0);
     assert.ok(results.value.some(result => result.matchStatus === 'MATCH'));
     assert.ok(results.value.some(result => result.matchStatus === 'EXCLUDED'));
-    assert.ok(results.value.every(result => result.ruleVersion === 'step1-rule-v1'));
+    assert.ok(results.value.every(result => result.ruleVersion === RULE_VERSION));
     const retry = await call(base, `/api/purchase-requests/${draft.value.id}/search`, {
       method: 'POST', actorType: 'AGENT', requestId: 'buyer-search-1',
     });
@@ -145,5 +146,126 @@ test('missing required values and invalid categories return 422', async () => {
     const confirm = await call(base, `/api/purchase-requests/${partial.value.id}/confirm`, { method: 'POST' });
     assert.equal(confirm.status, 422);
     assert.deepEqual(confirm.value.details.missingFields, ['maxBudgetKrw']);
+  });
+});
+
+test('Agent natural-language purchase drafts persist extracted conditions and require human confirmation', async () => {
+  await withApi(async base => {
+    const options = { method: 'POST', actorType: 'AGENT', requestId: 'natural-purchase-1',
+      body: { naturalLanguageRequest: '100만 원 이하 태블릿 찾아줘' } };
+    const created = await call(base, '/api/purchase-requests', options);
+    assert.equal(created.status, 201);
+    assert.equal(created.value.category, 'TABLET');
+    assert.equal(created.value.maxBudgetKrw, 1000000);
+    assert.equal(created.value.status, 'DRAFT');
+    assert.equal((await call(base, '/api/purchase-requests', options)).value.id, created.value.id);
+    assert.equal((await call(base, `/api/purchase-requests/${created.value.id}/search`, {
+      method: 'POST', actorType: 'AGENT', requestId: 'natural-search-early',
+    })).status, 409);
+    assert.equal((await call(base, '/api/purchase-requests/mine')).value[0].maxBudgetKrw, 1000000);
+    await call(base, `/api/purchase-requests/${created.value.id}/confirm`, { method: 'POST' });
+    const patched = await call(base, `/api/purchase-requests/${created.value.id}`, {
+      method: 'PATCH', actorType: 'AGENT', requestId: 'natural-purchase-2',
+      body: { naturalLanguageRequest: '256GB 이상' },
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.value.storageGb, 256);
+    assert.equal(patched.value.maxBudgetKrw, 1000000);
+    assert.equal(patched.value.status, 'DRAFT');
+    const unclear = await call(base, '/api/purchase-requests', {
+      method: 'POST', body: { naturalLanguageRequest: '저렴한 태블릿' },
+    });
+    assert.ok(unclear.value.nextQuestions.length);
+    assert.equal((await call(base, `/api/purchase-requests/${unclear.value.id}/confirm`, { method: 'POST' })).status, 422);
+  });
+});
+
+test('HTTP search uses Korean model aliases and preserves exclusion diagnostics', async () => {
+  await withApi(async base => {
+    const draft = await call(base, '/api/purchase-requests', {
+      method: 'POST', body: { category: 'PHONE', modelQuery: '갤럭시 s23', maxBudgetKrw: 600000, storageGb: 256 },
+    });
+    await call(base, `/api/purchase-requests/${draft.value.id}/confirm`, { method: 'POST' });
+    const response = await call(base, `/api/purchase-requests/${draft.value.id}/search`, { method: 'POST' });
+    assert.equal(response.status, 200);
+    const candidates = response.value.filter(value => value.matchStatus !== 'EXCLUDED');
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].listing.model, 'Galaxy S23');
+    assert.equal(candidates[0].ruleVersion, RULE_VERSION);
+    assert.ok(response.value.some(value => value.unmetFields.includes('category')));
+  });
+});
+
+test('purchase API shares review guidance, owner-only detail and approval reset with Agents and Web', async () => {
+  await withApi(async base => {
+    const draftOptions = { method: 'POST', actorType: 'AGENT', requestId: 'api-link-create',
+      body: { naturalLanguageRequest: '저렴한 태블릿' } };
+    const created = await call(base, '/api/purchase-requests', draftOptions);
+    assert.equal(created.status, 201);
+    assert.equal(created.value.humanApprovalRequired, true);
+    assert.equal(created.value.readyForConfirmation, false);
+    assert.equal(created.value.nextAction.action, 'COMPLETE_CONDITIONS');
+    assert.deepEqual((await call(base, '/api/purchase-requests', draftOptions)).value, created.value);
+    const path = `/api/purchase-requests/${created.value.id}`;
+    assert.deepEqual((await call(base, path)).value, created.value);
+    assert.equal((await call(base, path, { userId: otherUser })).status, 403);
+    assert.equal((await call(base, '/api/purchase-requests/00000000-0000-4000-8000-000000009999')).status, 404);
+    const edited = await call(base, path, { method: 'PATCH', actorType: 'AGENT', requestId: 'api-link-edit',
+      body: { knownConstraints: { maxBudgetKrw: 1000000 } } });
+    assert.equal(edited.value.readyForConfirmation, true);
+    assert.equal(edited.value.nextAction.action, 'REVIEW_AND_CONFIRM');
+    assert.equal(edited.value.nextAction.actor, 'HUMAN');
+    assert.ok(!edited.value.nextQuestions.some(question => question.includes('예산')));
+    assert.equal((await call(base, `${path}/confirm`, { method: 'POST', actorType: 'AGENT' })).status, 403);
+    assert.equal((await call(base, `${path}/search`, { method: 'POST' })).status, 409);
+    const confirmed = await call(base, `${path}/confirm`, { method: 'POST' });
+    assert.equal(confirmed.value.humanApprovalRequired, false);
+    assert.equal(confirmed.value.readyForConfirmation, false);
+    assert.equal(confirmed.value.nextAction.action, 'SEARCH_LISTINGS');
+    assert.equal((await call(base, `${path}/search`, { method: 'POST', body: { maxBudgetKrw: 2000000 } })).status, 422);
+    const results = await call(base, `${path}/search`, { method: 'POST', actorType: 'AGENT', requestId: 'api-link-search' });
+    assert.equal(results.status, 200);
+    assert.ok(results.value.some(result => result.matchStatus === 'MATCH'));
+    const patched = await call(base, path, { method: 'PATCH', body: { storageGb: 256 } });
+    assert.equal(patched.value.status, 'DRAFT');
+    assert.equal(patched.value.humanApprovalRequired, true);
+    assert.equal((await call(base, `${path}/search`, { method: 'POST' })).status, 409);
+    const schema = await call(base, '/api/categories/TABLET/schema');
+    assert.deepEqual(schema.value.purchaseRequiredFields, ['category', 'maxBudgetKrw']);
+    assert.deepEqual(schema.value.requiredFields, ['category', 'model', 'priceKrw']);
+  });
+});
+
+test('Agent API rejects missing request IDs and invalid intent without saving partial drafts', async () => {
+  await withApi(async (base, server) => {
+    const initial = server.store.db.prepare('SELECT COUNT(*) AS n FROM purchase_requests').get().n;
+    for (const options of [
+      { method: 'POST', actorType: 'AGENT', body: { naturalLanguageRequest: '태블릿 100만원 이하' } },
+      { method: 'POST', actorType: 'AGENT', requestId: 'bad-intent', body: { naturalLanguageRequest: 123 } },
+      { method: 'POST', actorType: 'AGENT', requestId: 'bad-known', body: { knownConstraints: { category: 'LAPTOP' } } },
+    ]) {
+      const response = await call(base, '/api/purchase-requests', options);
+      assert.equal(response.status, 422);
+      assert.equal(response.value.code, 'VALIDATION_ERROR');
+    }
+    assert.equal(server.store.db.prepare('SELECT COUNT(*) AS n FROM purchase_requests').get().n, initial);
+    assert.equal(server.store.db.prepare("SELECT COUNT(*) AS n FROM agent_action_logs WHERE status='FAILED'").get().n, 3);
+  });
+});
+
+test('skipped optional questions persist through the API and never bypass required fields', async () => {
+  await withApi(async base => {
+    const draft = await call(base, '/api/purchase-requests', { method: 'POST',
+      body: { naturalLanguageRequest: '태블릿 100만원 이하' } });
+    const path = `/api/purchase-requests/${draft.value.id}`;
+    const skipped = ['modelQuery', 'storageGb', 'conditionPreferences'];
+    const patched = await call(base, path, { method: 'PATCH', body: { skippedQuestionFields: skipped } });
+    assert.deepEqual(patched.value.nextQuestions, []);
+    assert.deepEqual((await call(base, path)).value.skippedQuestionFields, skipped);
+    assert.equal((await call(base, path, { method: 'PATCH', body: { skippedQuestionFields: ['maxBudgetKrw'] } })).status, 422);
+    assert.equal((await call(base, `${path}/confirm`, { method: 'POST' })).status, 200);
+    await call(base, path, { method: 'PATCH', body: { maxBudgetKrw: null } });
+    assert.equal((await call(base, `${path}/confirm`, { method: 'POST' })).status, 422);
+    assert.equal((await call(base, `${path}/search`, { method: 'POST' })).status, 409);
   });
 });

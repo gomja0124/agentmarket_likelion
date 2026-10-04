@@ -1,4 +1,6 @@
 import { validationError } from './errors.js';
+import { structurePurchaseConditions } from './purchase-conditions.js';
+import { OPTIONAL_QUESTION_FIELDS, purchaseQuestions } from './purchase-questions.js';
 
 export const CATEGORIES = ['PHONE', 'TABLET'];
 export const CONDITIONS = ['LIKE_NEW', 'GOOD', 'FAIR'];
@@ -90,7 +92,13 @@ export function normalizeListingDraft(payload, { existing, userId, actorType, no
 }
 
 export function normalizePurchaseRequest(payload, { existing, userId, actorType, now, id }) {
-  if (!objectInput(payload)) throw validationError('요청 본문은 JSON 객체여야 합니다.');
+  // Validate supplied structured values before any ambiguity handling clears them.
+  if (objectInput(payload) && (Object.hasOwn(payload, 'naturalLanguageRequest') || Object.hasOwn(payload, 'knownConstraints'))) {
+    const direct = Object.fromEntries(['category', 'modelQuery', 'maxBudgetKrw', 'storageGb', 'conditionPreferences'].filter(key => Object.hasOwn(payload, key)).map(key => [key, payload[key]]));
+    normalizePurchaseRequest(direct, { userId, actorType, now, id });
+    if (objectInput(payload.knownConstraints)) normalizePurchaseRequest(payload.knownConstraints, { userId, actorType, now, id });
+  }
+  payload = structurePurchaseConditions(payload, existing);
   const merged = { ...(existing || {}), ...payload };
   const conditionPreferences = stringArray(merged.conditionPreferences, 'conditionPreferences', { maxItems: 3, maxLength: 30 });
   const invalidConditions = conditionPreferences.filter(condition => !CONDITIONS.includes(condition));
@@ -110,8 +118,18 @@ export function normalizePurchaseRequest(payload, { existing, userId, actorType,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
+  const skipped = stringArray(merged.skippedQuestionFields, 'skippedQuestionFields', { maxItems: 3, maxLength: 30 });
+  if (skipped.some(field => !OPTIONAL_QUESTION_FIELDS.includes(field))) {
+    throw validationError('선택 조건 질문만 건너뛸 수 있습니다.', { field: 'skippedQuestionFields', allowed: OPTIONAL_QUESTION_FIELDS });
+  }
+  normalized.skippedQuestionFields = skipped.filter(field => {
+    if (Object.hasOwn(payload, field) && !Object.hasOwn(payload, 'skippedQuestionFields')) return false;
+    return normalized[field] == null || (Array.isArray(normalized[field]) && normalized[field].length === 0);
+  });
   const requiredMissing = purchaseRequestMissing(normalized);
-  normalized.missingFields = unresolved(normalized, stringArray(merged.missingFields, 'missingFields'), requiredMissing);
+  normalized.missingFields = unresolved(normalized, stringArray(merged.missingFields, 'missingFields'), requiredMissing)
+    .filter(field => !normalized.skippedQuestionFields.includes(field));
+  normalized.nextQuestions = purchaseQuestions(normalized, normalized.nextQuestions);
   return normalized;
 }
 
