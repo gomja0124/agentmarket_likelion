@@ -78,7 +78,7 @@ test('tool list follows token scopes; backend still enforces them', async () => 
     const readOnly = await issue('read-only', ['read']);
     const ro = await connect(readOnly.token);
     const roTools = (await ro.client.listTools()).tools.map(t => t.name).sort();
-    assert.deepEqual(roTools, ['get_category_schema', 'get_listing', 'get_market_guide', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'search_listings', 'whoami']);
+    assert.deepEqual(roTools, ['browse_listings', 'get_category_schema', 'get_listing', 'get_market_guide', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'whoami']);
     const me = await ro.call('whoami');
     assert.equal(me.value.userId, demoUser);
     assert.deepEqual(me.value.scopes, ['read']);
@@ -90,12 +90,13 @@ test('tool list follows token scopes; backend still enforces them', async () => 
     const s = await connect(seller.token);
     const sellerTools = (await s.client.listTools()).tools.map(t => t.name);
     assert.ok(sellerTools.includes('create_listing_draft'));
-    assert.ok(!sellerTools.includes('run_search'));
-    assert.ok(!sellerTools.includes('create_purchase_request'));
+    assert.ok(!sellerTools.includes('search_listings'));
+    assert.ok(!sellerTools.includes('create_purchase_request_draft'));
     const draft = await s.call('create_listing_draft', { category: 'PHONE', model: 'iPhone 16', priceKrw: 1100000 });
     assert.equal(draft.isError, false);
-    assert.equal(draft.value.draft.status, 'READY_FOR_REVIEW');
-    assert.match(draft.value.nextStep, /https:\/\/web\.example/);
+    assert.equal(draft.value.publishable, true);
+    assert.equal(draft.value.humanApprovalRequired, true);
+    assert.match(draft.value.nextAction, /https:\/\/web\.example/);
     await s.client.close();
   });
 });
@@ -104,15 +105,15 @@ test('full buyer flow over remote transport with human confirmation in between',
   await withStack(async ({ issue, connect, human }) => {
     const buyer = await issue('buyer-agent', ['purchase:write', 'search']);
     const b = await connect(buyer.token);
-    const request = await b.call('create_purchase_request', { category: 'TABLET', maxBudgetKrw: 700000, conditionPreferences: ['LIKE_NEW', 'GOOD'] });
+    const request = await b.call('create_purchase_request_draft', { naturalLanguageRequest: '70만원 이하 태블릿', knownConstraints: { category: 'TABLET', maxBudgetKrw: 700000, conditionPreferences: ['LIKE_NEW', 'GOOD'] } });
     assert.equal(request.isError, false);
-    const id = request.value.purchaseRequest.id;
-    const early = await b.call('run_search', { purchaseRequestId: id });
+    const id = request.value.requestId;
+    const early = await b.call('search_listings', { purchaseRequestId: id });
     assert.equal(early.isError, true);
     assert.equal(early.value.code, 'INVALID_STATE');
 
     assert.equal((await human('POST', `/api/purchase-requests/${id}/confirm`)).status, 200);
-    const search = await b.call('run_search', { purchaseRequestId: id });
+    const search = await b.call('search_listings', { purchaseRequestId: id });
     assert.equal(search.isError, false);
     assert.equal(search.value.summary.total, 12);
     assert.ok(search.value.results.every(r => r.matchStatus !== 'MATCH' || r.listing.category === 'TABLET'));
@@ -143,7 +144,7 @@ test('stdio mode also works with a bearer token against a strict backend', async
     const client = new Client({ name: 'stdio-token', version: '0' });
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(repoRoot, 'mcp/index.js')], cwd: repoRoot, env, stderr: 'pipe' }));
     const names = (await client.listTools()).tools.map(t => t.name);
-    assert.ok(names.includes('run_search') && !names.includes('create_listing_draft'));
+    assert.ok(names.includes('search_listings') && !names.includes('create_listing_draft'));
     await client.close();
 
     // 잘못된 토큰이면 프로세스가 바로 종료되어 연결이 실패한다.

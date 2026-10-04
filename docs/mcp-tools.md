@@ -23,10 +23,10 @@ Agent는 **사람이 Web에서 발급한 토큰**으로만 접속한다. 토큰�
 
 | scope | 허용 | 해당 tool |
 | --- | --- | --- |
-| `read` (항상 포함) | 조회·검색 | whoami, get_market_guide, get_category_schema, search_listings, get_listing, list_my_* |
+| `read` (항상 포함) | 조회·검색 | whoami, get_market_guide, get_category_schema, browse_listings, get_listing, list_my_* |
 | `listing:write` | 판매글 초안 | create_listing_draft, update_listing_draft |
-| `purchase:write` | 구매 조건 초안 | create_purchase_request, update_purchase_request |
-| `search` | 확정된 조건으로 검색 | run_search |
+| `purchase:write` | 구매 조건 초안 | create_purchase_request_draft, update_purchase_request_draft |
+| `search` | 확정된 조건으로 검색·매칭 | search_listings |
 
 토큰 관리 API (사람 전용, Web에서 호출)
 
@@ -113,37 +113,46 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 
 ## Tool 목록
 
-읽기 tool은 승인 없이 호출할 수 있다. 쓰기 tool은 전부 멱등하며 `requestId`(UUID)를 넘기면 재시도해도 중복 생성되지 않는다. 생략하면 어댑터가 호출마다 새 키를 만든다.
+이름과 입출력은 **03 MCP Tools Spec — Step 1**을 따른다. 읽기 tool은 승인 없이 호출할 수 있다. 쓰기 tool은 전부 멱등하며 `requestId`(UUID)를 넘기면 재시도해도 중복 생성되지 않는다. 생략하면 어댑터가 호출마다 새 키를 만든다. 스펙의 "authenticated userId"는 tool 인자가 아니라 토큰 바인딩에서 온다. Agent가 다른 사용자를 지정할 수 없다.
 
-| tool | scope | 백엔드 경로 | 설명 |
+### 스펙 tool (7)
+
+| tool | scope | 입력 | 출력 |
 | --- | --- | --- | --- |
-| `whoami` | read | `GET /api/me` | 대리하는 사용자, 토큰 이름, scope |
-| `get_market_guide` | read | `GET /api/health` | 할 수 있는 일·없는 일, 판매·구매 흐름, 승인 지점. 가장 먼저 호출 |
-| `get_category_schema` | read | `GET /api/categories/:c/schema` | 필수·선택 항목과 질문 힌트 |
-| `search_listings` | read | `GET /api/listings?q=` | ACTIVE 매물 텍스트 검색 |
-| `get_listing` | read | `GET /api/listings/:id` | 매물 상세 |
-| `list_my_listing_drafts` | read | `GET /api/listing-drafts/mine` | 내 판매 초안 + nextStep |
-| `list_my_listings` | read | `GET /api/listings/mine` | 내 매물 |
-| `list_my_purchase_requests` | read | `GET /api/purchase-requests/mine` | 내 구매 조건 + nextStep |
-| `create_listing_draft` | listing:write | `POST /api/listing-drafts` | 판매글 초안 생성 |
-| `update_listing_draft` | listing:write | `PATCH /api/listing-drafts/:id` | 초안 수정 |
-| `create_purchase_request` | purchase:write | `POST /api/purchase-requests` | 구매 조건 초안 생성 |
-| `update_purchase_request` | purchase:write | `PATCH /api/purchase-requests/:id` | 구매 조건 수정 (확정 상태면 DRAFT로 되돌아감) |
-| `run_search` | search | `POST /api/purchase-requests/:id/search` | 확정된 조건으로 Rule-based 매칭 |
+| `get_category_schema` | read | `category` | `requiredFields`, `optionalFields`, `questionHints`, `minimumPurchaseConditions` |
+| `create_listing_draft` | listing:write | `category`, `model`(또는 `productName`), `priceKrw`, `freeText`(→description), `images?`, 선택 구조화 필드 | `draftId`, `structuredFields`, `missingFields`, `nextQuestions`, `publishable`, `reviewRequired: true`, `humanApprovalRequired`, `nextAction`, `draft` |
+| `update_listing_draft` | listing:write | `draftId`, `patch{...}` | 위와 같음 + `updatedDraft` |
+| `create_purchase_request_draft` | purchase:write | `category?`, `naturalLanguageRequest?`, `knownConstraints{category, modelQuery, maxBudgetKrw, storageGb, conditionPreferences}` | `requestId`, `structuredConditions`, `missingFields`, `nextQuestions`, `readyForConfirmation`, `humanApprovalRequired`, `nextAction`, `purchaseRequest` |
+| `update_purchase_request_draft` | purchase:write | `requestId`, `patch{...}` | 위와 같음 + `updatedRequest` |
+| `search_listings` | search | `purchaseRequestId` | `summary{total, MATCH, NEEDS_CONFIRMATION, EXCLUDED, ruleVersion}`, `results: SearchResult[]` (각 후보에 `listing`, `matchedFields`, `unmetFields`, `missingFields`) |
+| `get_listing` | read | `listingId` | `Listing` (구조화 필드 + `images`) |
 
-tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성화(`deactivate`), 토큰 발급·폐기. 서버도 Agent면 403으로 거부한다.
+`nextQuestions`는 비어 있는 항목에 대한 질문을 스펙 우선순위로 만든다. 판매: category → model → priceKrw → storageGb → condition → accessories. 구매: category → maxBudgetKrw → modelQuery → storageGb. 백엔드는 값을 추정하지 않으므로 Agent가 사용자에게 묻고 `update_*`로 채운다.
 
-## 승인 지점
+### 보조 tool (6, 모두 read)
+
+| tool | 설명 |
+| --- | --- |
+| `whoami` | 대리하는 사용자, 토큰 이름, scope |
+| `get_market_guide` | 할 수 있는 일·없는 일, 판매·구매 흐름, 승인 지점. 가장 먼저 호출 |
+| `browse_listings` | 구매 조건 없이 ACTIVE 매물 텍스트 검색 (시세 파악용) |
+| `list_my_listing_drafts` | 내 판매 초안 + `nextAction` |
+| `list_my_listings` | 내 매물 (ACTIVE/INACTIVE) |
+| `list_my_purchase_requests` | 내 구매 조건 + `nextAction` |
+
+tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성화(`deactivate`), 토큰 발급·폐기. 서버도 Agent면 403으로 거부한다. Step 2 tool(`public_demand`, `browse_buyer_demand`, `watch_listings`, `notify_match`)은 없다.
+
+## 승인 지점 (스펙 3절)
 
 | 시점 | 누가 | 어디서 | Agent에게 보이는 신호 |
 | --- | --- | --- | --- |
 | Agent 연결 | 사용자 | Web (토큰 발급) | 토큰 없이는 연결 자체가 안 됨 |
-| 판매글 게시 | 판매자 | Web | 초안 `status: READY_FOR_REVIEW` + `nextStep`에 게시 안내 |
-| 구매 조건 확정 | 구매자 | Web | 조건 `status: DRAFT` + `nextStep`에 확정 안내. 확정 전 `run_search`는 `INVALID_STATE` |
+| 판매글 게시 | 판매자 | Web → `POST .../publish` | `publishable: true`, `humanApprovalRequired: true`, `nextAction`에 게시 안내 |
+| 구매 조건 확정·검색 | 구매자 | Web → `POST .../confirm` 후 검색 | `readyForConfirmation: true`, `nextAction`에 확정 안내. 확정 전 `search_listings`는 `INVALID_STATE` |
 | 권한 확대 | 사용자 | Web (새 토큰) | 없는 scope의 tool은 목록에 없음. `whoami`로 현재 권한 확인 |
 | 연결 해제 | 사용자 | Web (토큰 폐기) | 다음 요청부터 401 |
 
-쓰기 tool 응답에는 항상 `nextStep` 문자열이 들어간다. Agent는 이 문장을 사용자에게 그대로 전달하면 된다.
+쓰기 tool 응답에는 항상 `humanApprovalRequired`와 `nextAction`이 들어간다. Agent는 `nextAction` 문장을 사용자에게 그대로 전달하면 된다.
 
 ## 응답 형식
 
@@ -162,12 +171,14 @@ tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성
 
 code 종류: `VALIDATION_ERROR`, `INVALID_STATE`, `FORBIDDEN`(사람 전용 또는 scope 부족), `UNAUTHORIZED`(토큰 문제), `NOT_FOUND`, `TIMEOUT`, `NETWORK_ERROR`. 뒤의 둘만 `retryable: true`.
 
-`run_search` 응답에는 `summary`(MATCH / NEEDS_CONFIRMATION / EXCLUDED 개수)와 `results`가 함께 온다. `NEEDS_CONFIRMATION`은 매물 정보가 없어 판단할 수 없다는 뜻이며 적합으로 추정하면 안 된다.
+`search_listings` 응답에는 `summary`(MATCH / NEEDS_CONFIRMATION / EXCLUDED 개수)와 `results`가 함께 온다. `NEEDS_CONFIRMATION`은 매물 정보가 없어 판단할 수 없다는 뜻이며 적합으로 추정하면 안 된다.
 
-## 테스트
+## 테스트 (05 Acceptance Spec 대응)
+
+`test/mcp.test.js`는 AC-01~05, 07을 MCP 경로로 검증한다. AC-05의 매칭 규칙 자체는 Search & Matching 영역이라 결과 형식만 확인하고, AC-06(결과 화면)은 Web 영역이다.
 
 ```sh
-node --test                    # 전체 20개
+node --test                    # 전체 24개
 node --test test/auth.test.js         # 토큰 발급·폐기·만료, scope, strict 모드
 node --test test/mcp.test.js          # stdio E2E (demo 모드)
 node --test test/mcp-remote.test.js   # strict 백엔드 + 원격 MCP E2E, 폐기·scope·429
