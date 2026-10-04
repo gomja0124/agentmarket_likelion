@@ -5,9 +5,15 @@
   "type": "module",
   "scripts": {
     "start:api": "node server/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "start:mcp": "node mcp/index.js",
+    "test:mcp": "node --test test/mcp.test.js"
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "zod": "^4.6.5"
   }
 }

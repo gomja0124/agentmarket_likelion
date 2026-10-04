@@ -4,10 +4,11 @@
 
 ## 로컬 실행
 
-Node.js 22.5 이상에서 별도 패키지 설치 없이 실행합니다.
+Node.js 22.5 이상. 백엔드는 별도 패키지 없이 실행되고, MCP 서버는 `npm install`이 필요합니다.
 
 ```sh
-node server/index.js
+node server/index.js   # 백엔드
+npm install && node mcp/index.js   # MCP 서버 (보통 Claude Desktop 등 Agent 앱이 직접 띄움)
 ```
 
 서버는 `http://127.0.0.1:8080`에 열리고, `.local/agent-market.sqlite` 데이터베이스와 12개 활성 핸드폰·태블릿 시드 매물을 준비합니다. API 경로, 응답, 상태·권한 규칙은 [Backend API 계약](docs/backend-api.md)을 참고하세요. 공유 JSON Schema는 [`schemas/step1.schema.json`](schemas/step1.schema.json)에 있습니다.
@@ -25,8 +26,12 @@ node server/index.js
 ## 확인
 
 ```sh
-node --test
+node --test            # 백엔드 + MCP E2E
 ```
+
+## MCP
+
+외부 개인 Agent는 `mcp/`의 MCP 서버를 통해 같은 HTTP API를 호출합니다. tool 목록, 승인 지점, Claude Desktop 설정은 [MCP Tools](docs/mcp-tools.md)를 참고하세요.
 
 ## 역할 경계
 
