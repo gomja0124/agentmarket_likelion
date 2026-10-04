@@ -1,0 +1,38 @@
+# 배포 구성: strict 인증 백엔드 + 원격 MCP 서버.
+# 1) cp .env.example .env 후 비밀값을 채운다.   2) docker compose up -d --build
+# Agent 앱에는 https://<도메인>/mcp 와 Web에서 발급한 토큰만 알려주면 된다. TLS는 앞단 리버스 프록시(Caddy/nginx)에서 종료한다.
+services:
+  api:
+    build: .
+    command: ["node", "server/index.js"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      AGENT_MARKET_DB_PATH: /data/agent-market.sqlite
+      AGENT_MARKET_AUTH_MODE: ${AGENT_MARKET_AUTH_MODE:-strict}
+      AGENT_MARKET_WEB_SECRET: ${AGENT_MARKET_WEB_SECRET:?set AGENT_MARKET_WEB_SECRET in .env}
+      AGENT_MARKET_CORS_ORIGIN: ${AGENT_MARKET_CORS_ORIGIN:-*}
+    volumes:
+      - agent-market-data:/data
+    ports:
+      - "${API_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  mcp:
+    build: .
+    command: ["node", "mcp/http.js"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8090"
+      AGENT_MARKET_API_URL: http://api:8080
+      AGENT_MARKET_WEB_URL: ${AGENT_MARKET_WEB_URL:-}
+      MCP_RATE_LIMIT_PER_MINUTE: ${MCP_RATE_LIMIT_PER_MINUTE:-120}
+      HEALTH_URL: http://127.0.0.1:8090/healthz
+    depends_on:
+      - api
+    ports:
+      - "${MCP_PORT:-8090}:8090"
+    restart: unless-stopped
+
+volumes:
+  agent-market-data:

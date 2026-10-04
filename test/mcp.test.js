@@ -12,16 +12,19 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const demoUser = '00000000-0000-4000-8000-000000000001';
 
 /** 인메모리 API + stdio로 띄운 MCP 서버 + SDK 클라이언트. 실제 Claude Desktop이 하는 것과 같은 경로로 호출한다. */
-async function withMcp(run, { userId = demoUser } = {}) {
-  const api = createApiServer({ dbPath: ':memory:' });
+async function withMcp(run, { userId = demoUser, token = '', apiOptions = {} } = {}) {
+  const api = createApiServer({ dbPath: ':memory:', ...apiOptions });
   await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${api.address().port}`;
   const client = new Client({ name: 'e2e-test', version: '0.0.0' });
+  const env = { ...process.env, AGENT_MARKET_API_URL: base, AGENT_MARKET_WEB_URL: 'http://web.local' };
+  delete env.AGENT_MARKET_TOKEN;
+  if (token) env.AGENT_MARKET_TOKEN = token; else env.AGENT_MARKET_USER_ID = userId;
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.join(repoRoot, 'mcp/index.js')],
     cwd: repoRoot,
-    env: { ...process.env, AGENT_MARKET_API_URL: base, AGENT_MARKET_USER_ID: userId, AGENT_MARKET_WEB_URL: 'http://web.local' },
+    env,
     stderr: 'pipe',
   });
   await client.connect(transport);
@@ -51,7 +54,7 @@ test('server exposes the Step 1 tool set and instructions', async () => {
     assert.deepEqual(names, [
       'create_listing_draft', 'create_purchase_request', 'get_category_schema', 'get_listing', 'get_market_guide',
       'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'run_search', 'search_listings',
-      'update_listing_draft', 'update_purchase_request',
+      'update_listing_draft', 'update_purchase_request', 'whoami',
     ]);
     assert.ok(!names.some(n => /publish|confirm|deactivate/.test(n)), '사람 전용 행동은 tool로 노출되지 않는다');
     assert.match(client.getInstructions() || '', /게시.*사람/);

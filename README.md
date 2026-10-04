@@ -29,9 +29,9 @@ npm install && node mcp/index.js   # MCP 서버 (보통 Claude Desktop 등 Agent
 node --test            # 백엔드 + MCP E2E
 ```
 
-## MCP
+## MCP · 인증 · 배포
 
-외부 개인 Agent는 `mcp/`의 MCP 서버를 통해 같은 HTTP API를 호출합니다. tool 목록, 승인 지점, Claude Desktop 설정은 [MCP Tools](docs/mcp-tools.md)를 참고하세요.
+외부 개인 Agent는 `mcp/`의 MCP 서버(stdio 또는 원격 Streamable HTTP)를 통해 같은 HTTP API를 호출합니다. Agent는 사람이 Web에서 발급한 scope 있는 토큰으로만 접속하고, 게시·확정은 여전히 사람만 합니다. 배포는 `docker compose up -d --build` (strict 인증 모드). tool 목록, 토큰 API, 환경 변수, Claude Desktop 설정은 [MCP 문서](docs/mcp-tools.md)를 참고하세요.
 
 ## 역할 경계
 

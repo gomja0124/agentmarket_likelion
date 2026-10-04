@@ -34,7 +34,7 @@ async function call(base, path, { method = 'GET', body, userId, actorType, reque
 
 test('health and seed expose at least 12 active phone/tablet listings', async () => {
   await withApi(async base => {
-    assert.deepEqual((await call(base, '/api/health')).value, { status: 'ok', database: 'sqlite', step: 1 });
+    assert.deepEqual((await call(base, '/api/health')).value, { status: 'ok', database: 'sqlite', step: 1, authMode: 'demo' });
     const listings = await call(base, '/api/listings?status=ACTIVE');
     assert.equal(listings.status, 200);
     assert.equal(listings.value.length, 12);

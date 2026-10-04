@@ -14,9 +14,21 @@ The API binds to `127.0.0.1:8080` and creates `.local/agent-market.sqlite` with 
 
 The proposal describes PostgreSQL for the eventual service. This thin demo uses SQLite so the API, migrations, and seed data can run locally without a database service. Treat the SQL migration as the local prototype schema; PostgreSQL deployment still needs a PostgreSQL-specific migration and adapter.
 
-## Demo identity only
+## Authentication
 
-For local UI/API integration, requests default to demo user `00000000-0000-4000-8000-000000000001` and a human actor. The MCP adapter may pass `X-User-Id`, `X-Actor-Type: AGENT`, and `Idempotency-Key` headers. Those headers are **not authentication**: this server has no login/token verification and must only bind to localhost. Production must derive user and actor identity from verified credentials before exposing these routes.
+`AGENT_MARKET_AUTH_MODE` selects one of two modes (see [MCP docs](mcp-tools.md) for the full picture).
+
+- `demo` (default): requests without credentials fall back to demo user `00000000-0000-4000-8000-000000000001` and the `X-User-Id` / `X-Actor-Type` headers are trusted as-is. Local development only.
+- `strict`: Agents must send `Authorization: Bearer amk_...` (a token issued by the human owner via `POST /api/agent-tokens`). Humans must send `X-User-Id` plus `X-Web-Secret` equal to `AGENT_MARKET_WEB_SECRET`; unknown users are rejected. Use this whenever the API is reachable from outside localhost.
+
+Bearer tokens work in both modes. A token carries scopes (`read`, `listing:write`, `purchase:write`, `search`); write routes require the matching scope and respond 403 otherwise. `GET /api/health` never requires credentials.
+
+| Method and path | Purpose | Success |
+| --- | --- | --- |
+| `GET /api/me` | Current principal: userId, actorType, scopes, token name | identity object |
+| `GET /api/agent-tokens` | Human: list own tokens (no secrets) | `AgentToken[]` |
+| `POST /api/agent-tokens` | Human: issue a token `{ name, scopes?, expiresInDays? }`; the plaintext `token` is returned once | `AgentToken` + `token` |
+| `DELETE /api/agent-tokens/:id` | Human: revoke | `AgentToken` |
 
 An Agent may create/update drafts and request search for a purchase request already confirmed by its owner. Only the human owner can publish a listing, confirm a purchase request, or deactivate a listing. A confirmed request is the human authorization prerequisite for later Agent search calls.
 
@@ -76,4 +88,4 @@ erDiagram
   USER ||--o{ AGENT_ACTION_LOG : performs
 ```
 
-The migration also has a separate `idempotency_keys` table. `PUBLISHED` is included as the terminal `ListingDraft` state because the State Rules page defines that transition and says it represents successful Listing creation; the Data Model page's shorter enum omits it. A revision creates a new Draft and only changes its existing Listing after human approval. The demo preserves the Listing ID to match the frontend API draft.
+The migration also has separate `idempotency_keys` and `agent_tokens` (migration 002) tables. `PUBLISHED` is included as the terminal `ListingDraft` state because the State Rules page defines that transition and says it represents successful Listing creation; the Data Model page's shorter enum omits it. A revision creates a new Draft and only changes its existing Listing after human approval. The demo preserves the Listing ID to match the frontend API draft.

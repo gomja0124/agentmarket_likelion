@@ -42,6 +42,13 @@ export const MARKET_GUIDE = {
     '5. 결과는 matchStatus(MATCH / NEEDS_CONFIRMATION / EXCLUDED)와 matched/unmet/missingFields로 설명한다. missingFields는 정상으로 추정하지 않는다.',
   ],
   retryRule: '쓰기 tool은 멱등하다. 네트워크 오류로 재시도할 때는 같은 requestId를 다시 넘기면 중복 생성되지 않는다.',
+  scopes: {
+    read: '검색·조회',
+    'listing:write': '판매글 초안 생성·수정',
+    'purchase:write': '구매 조건 초안 생성·수정',
+    search: '확정된 조건으로 검색 실행',
+  },
+  scopeRule: '토큰에 없는 권한의 tool은 목록에 나타나지 않는다. 필요한 권한이 없으면 사용자에게 Web에서 권한을 추가한 토큰을 발급해 달라고 안내한다.',
 };
 
 function instructionsText() {
@@ -55,6 +62,7 @@ function instructionsText() {
     '구매 흐름: ' + MARKET_GUIDE.buyerFlow.join(' '),
     '',
     '값을 모르면 null로 두고 사용자에게 묻는다. 지어내지 않는다. ' + MARKET_GUIDE.retryRule,
+    MARKET_GUIDE.scopeRule,
   ].join('\n');
 }
 
@@ -95,7 +103,7 @@ function fail(error) {
       code: error.code,
       message: error.message,
       details: error.details,
-      retryable: error.status >= 500,
+      retryable: error.status >= 500 || error.status === 0,
       suggestedAction: suggestFor(error),
     }
     : { success: false, code: 'MCP_ERROR', message: error.message, retryable: false };
@@ -104,7 +112,10 @@ function fail(error) {
 
 function suggestFor(error) {
   switch (error.code) {
-    case 'FORBIDDEN': return '사람만 할 수 있는 행동입니다. 사용자에게 Web에서 직접 해 달라고 안내하세요.';
+    case 'FORBIDDEN': return error.message.includes('권한') ? '이 토큰에 없는 권한입니다. 사용자에게 Web에서 권한을 추가한 새 토큰을 발급해 달라고 안내하세요.' : '사람만 할 수 있는 행동입니다. 사용자에게 Web에서 직접 해 달라고 안내하세요.';
+    case 'UNAUTHORIZED': return '토큰이 유효하지 않습니다. 사용자에게 Web에서 토큰을 확인하거나 새로 발급해 달라고 안내하세요.';
+    case 'TIMEOUT':
+    case 'NETWORK_ERROR': return '백엔드에 연결하지 못했습니다. 잠시 후 같은 requestId로 재시도하고, 계속 실패하면 사용자에게 알리세요.';
     case 'INVALID_STATE': return '현재 상태에서는 불가능합니다. 사용자가 Web에서 확정·게시했는지 확인한 뒤 다시 시도하세요.';
     case 'VALIDATION_ERROR': return 'details의 필드를 확인하고 사용자에게 물어본 뒤 값을 고쳐 다시 호출하세요. 값을 지어내지 마세요.';
     case 'NOT_FOUND': return 'ID를 확인하세요. list_my_* tool로 현재 객체 목록을 다시 조회할 수 있습니다.';
@@ -138,102 +149,116 @@ function stripUndefined(object) {
   return Object.fromEntries(Object.entries(object).filter(([, v]) => v !== undefined));
 }
 
-export function createAgentMarketServer({ api = new AgentMarketApi(), webUrl = process.env.AGENT_MARKET_WEB_URL || '' } = {}) {
+/**
+ * @param api        백엔드 어댑터 (토큰 또는 demo userId 바인딩)
+ * @param webUrl     승인 안내에 넣을 Web 주소
+ * @param scopes     이 연결의 권한. null이면 제한 없음(demo). 배열이면 해당 권한의 tool만 등록한다.
+ */
+export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET_WEB_URL || '', scopes = null } = {}) {
+  if (!api) throw new Error('createAgentMarketServer에는 api가 필요합니다.');
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: instructionsText() });
   const guard = fn => async args => { try { return ok(await fn(args)); } catch (error) { return fail(error); } };
+  const has = scope => scopes == null || scopes.includes(scope);
+  const register = (scope, name, config, handler) => { if (has(scope)) server.registerTool(name, config, guard(handler)); };
 
-  server.registerTool('get_market_guide', {
+  register('read', 'whoami', {
+    title: '현재 연결 정보',
+    description: '이 Agent가 누구를 대리하는지, 어떤 권한(scope)이 있는지 돌려준다. 권한 부족 오류가 나면 먼저 호출한다.',
+    inputSchema: {},
+  }, async () => ({ ...(await api.me()), availableScopes: scopes ?? Object.keys(MARKET_GUIDE.scopes), webUrl: webUrl || null }));
+
+  register('read', 'get_market_guide', {
     title: '마켓 이용 규칙',
     description: '가장 먼저 호출한다. Agent가 할 수 있는 일과 없는 일, 판매·구매 흐름, 승인 지점, 재시도 규칙을 돌려준다.',
     inputSchema: {},
-  }, guard(async () => ({ ...MARKET_GUIDE, apiHealth: await api.health(), webUrl: webUrl || null })));
+  }, async () => ({ ...MARKET_GUIDE, apiHealth: await api.health(), webUrl: webUrl || null }));
 
-  server.registerTool('get_category_schema', {
+  register('read', 'get_category_schema', {
     title: '카테고리 항목 조회',
     description: '판매글 초안에 필요한 필수·선택 항목과 질문 힌트를 돌려준다. 초안을 만들기 전에 호출한다.',
     inputSchema: { category: CATEGORY },
-  }, guard(({ category }) => api.categorySchema(category)));
+  }, ({ category }) => api.categorySchema(category));
 
-  server.registerTool('search_listings', {
+  register('read', 'search_listings', {
     title: '공개 매물 검색',
     description: '구매 조건 없이 ACTIVE 매물을 텍스트로 검색한다. 시세 파악이나 빠른 확인용. 조건 기반 매칭은 run_search를 쓴다.',
     inputSchema: { query: z.string().max(200).optional().describe('모델명 등 검색어') },
-  }, guard(async ({ query }) => ({ listings: await api.listListings(query || '') })));
+  }, async ({ query }) => ({ listings: await api.listListings(query || '') }));
 
-  server.registerTool('get_listing', {
+  register('read', 'get_listing', {
     title: '매물 상세',
     description: '매물 ID로 상세를 조회한다. missingFields에 있는 항목은 판매자가 입력하지 않은 것이므로 정상으로 추정하지 않는다.',
     inputSchema: { listingId: UUID },
-  }, guard(({ listingId }) => api.getListing(listingId)));
+  }, ({ listingId }) => api.getListing(listingId));
 
-  server.registerTool('list_my_listing_drafts', {
+  register('read', 'list_my_listing_drafts', {
     title: '내 판매 초안 목록',
     description: '현재 사용자의 게시 전 판매 초안을 돌려준다. 게시 여부 확인에도 쓴다.',
     inputSchema: {},
-  }, guard(async () => {
+  }, async () => {
     const drafts = await api.myDrafts();
     return { drafts: drafts.map(d => ({ ...d, nextStep: nextStepFor('ListingDraft', d, webUrl) })) };
-  }));
+  });
 
-  server.registerTool('list_my_listings', {
+  register('read', 'list_my_listings', {
     title: '내 매물 목록',
     description: '현재 사용자가 게시한 매물(ACTIVE/INACTIVE)을 돌려준다.',
     inputSchema: {},
-  }, guard(async () => ({ listings: await api.myListings() })));
+  }, async () => ({ listings: await api.myListings() }));
 
-  server.registerTool('list_my_purchase_requests', {
+  register('read', 'list_my_purchase_requests', {
     title: '내 구매 조건 목록',
     description: '현재 사용자의 구매 조건(DRAFT/CONFIRMED)을 돌려준다. 사용자가 Web에서 확정했는지 확인할 때 쓴다.',
     inputSchema: {},
-  }, guard(async () => {
+  }, async () => {
     const requests = await api.myPurchaseRequests();
     return { purchaseRequests: requests.map(r => ({ ...r, nextStep: nextStepFor('PurchaseRequest', r, webUrl) })) };
-  }));
+  });
 
-  server.registerTool('create_listing_draft', {
+  register('listing:write', 'create_listing_draft', {
     title: '판매글 초안 생성',
     description: '사용자가 말한 정보로 판매글 초안을 만든다. 모르는 값은 생략하거나 null로 둔다. 응답의 missingFields와 nextStep을 사용자에게 전달한다. 게시는 사람이 Web에서 한다.',
     inputSchema: draftFields,
-  }, guard(async ({ requestId, ...fields }) => {
+  }, async ({ requestId, ...fields }) => {
     const draft = await api.createDraft(stripUndefined(fields), requestId);
     return { draft, nextStep: nextStepFor('ListingDraft', draft, webUrl) };
-  }));
+  });
 
-  server.registerTool('update_listing_draft', {
+  register('listing:write', 'update_listing_draft', {
     title: '판매글 초안 수정',
     description: '사용자에게 추가로 들은 값으로 초안을 채운다. 넘긴 필드만 바뀐다.',
     inputSchema: { draftId: UUID, ...draftFields },
-  }, guard(async ({ draftId, requestId, ...fields }) => {
+  }, async ({ draftId, requestId, ...fields }) => {
     const draft = await api.updateDraft(draftId, stripUndefined(fields), requestId);
     return { draft, nextStep: nextStepFor('ListingDraft', draft, webUrl) };
-  }));
+  });
 
-  server.registerTool('create_purchase_request', {
+  register('purchase:write', 'create_purchase_request', {
     title: '구매 조건 초안 생성',
     description: '사용자의 요청을 구조화해 구매 조건 초안을 만든다. category와 maxBudgetKrw가 필수이며 없으면 missingFields로 돌아온다. 확정은 사람이 Web에서 한다.',
     inputSchema: purchaseFields,
-  }, guard(async ({ requestId, ...fields }) => {
+  }, async ({ requestId, ...fields }) => {
     const purchaseRequest = await api.createPurchaseRequest(stripUndefined(fields), requestId);
     return { purchaseRequest, nextStep: nextStepFor('PurchaseRequest', purchaseRequest, webUrl) };
-  }));
+  });
 
-  server.registerTool('update_purchase_request', {
+  register('purchase:write', 'update_purchase_request', {
     title: '구매 조건 초안 수정',
     description: '구매 조건을 수정한다. 확정된 조건을 수정하면 DRAFT로 돌아가 다시 확정이 필요하다.',
     inputSchema: { purchaseRequestId: UUID, ...purchaseFields },
-  }, guard(async ({ purchaseRequestId, requestId, ...fields }) => {
+  }, async ({ purchaseRequestId, requestId, ...fields }) => {
     const purchaseRequest = await api.updatePurchaseRequest(purchaseRequestId, stripUndefined(fields), requestId);
     return { purchaseRequest, nextStep: nextStepFor('PurchaseRequest', purchaseRequest, webUrl) };
-  }));
+  });
 
-  server.registerTool('run_search', {
+  register('search', 'run_search', {
     title: '확정된 조건으로 매물 검색',
     description: '사람이 Web에서 확정한 구매 조건으로 Rule-based 매칭을 실행한다. 확정 전이면 INVALID_STATE로 거부된다. 결과의 NEEDS_CONFIRMATION은 정보 부족이지 적합이 아니다.',
     inputSchema: { purchaseRequestId: UUID, requestId: UUID.optional() },
-  }, guard(async ({ purchaseRequestId, requestId }) => {
+  }, async ({ purchaseRequestId, requestId }) => {
     const results = await api.search(purchaseRequestId, requestId);
     return { summary: summarizeSearch(results), results };
-  }));
+  });
 
   return server;
 }
