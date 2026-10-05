@@ -7,9 +7,11 @@
 - `frontend/`: `feat/gomja-frontend`에서 가져온 HTML·CSS·JavaScript 화면, API 어댑터, 데모 데이터, 테스트
 - `backend/`: Node.js HTTP API, SQLite 저장소, 마이그레이션, 공통 JSON Schema, 테스트
 
-React를 사용하지 않으며 별도 패키지 설치 없이 실행합니다. Node.js 22.5 이상과 Python 3가 필요합니다.
+React를 사용하지 않으며 백엔드 API는 내장 모듈을 사용하고 MCP 서버는 SDK 의존성을 설치해야 합니다. Node.js 22.5 이상과 Python 3가 필요합니다.
 
 ## 실행
+
+먼저 `npm --prefix backend ci`로 MCP 의존성을 설치합니다.
 
 저장소 루트에서 터미널 두 개로 실행합니다.
 
@@ -45,3 +47,14 @@ npm test
 - [프론트엔드 API](frontend/docs/frontend-api.md)
 
 Step 1은 핸드폰·태블릿, 초안과 사람 승인, 비공개 구매 조건, Rule-based Matching만 포함합니다.
+
+
+## MCP 서버
+
+API 실행 후 `npm run start:mcp`로 stdio MCP, `npm run start:mcp:http`로
+토큰 인증이 필요한 HTTP MCP를 실행할 수 있습니다. `npm run test:mcp`로
+두 전송 방식의 테스트를 실행합니다. 외부 Agent 설정과 토큰 발급은
+[MCP 연결 가이드](backend/docs/mcp-tools.md)를 참고하세요.
+
+로컬 Web은 demo 인증 모드로 실행합니다. strict 모드는 Web 서버 인증 중계가
+필요하며 공유 비밀을 브라우저 설정에 넣지 않습니다.

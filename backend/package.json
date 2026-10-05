@@ -6,9 +6,16 @@
   "scripts": {
     "start:api": "node server/index.js",
     "test": "node --test",
-    "demo:search": "node scripts/search-demo.js"
+    "demo:search": "node scripts/search-demo.js",
+    "start:mcp": "node mcp/index.js",
+    "start:mcp:http": "node mcp/http.js",
+    "test:mcp": "node --test test/mcp.test.js test/mcp-remote.test.js"
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "zod": "^4.6.5"
   }
 }

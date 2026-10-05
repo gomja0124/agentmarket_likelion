@@ -4,7 +4,7 @@
 
 ## 로컬 실행
 
-Node.js 22.5 이상에서 별도 패키지 설치 없이 실행합니다.
+Node.js 22.5 이상에서 API 자체는 내장 모듈로 실행하고 MCP 및 전체 테스트는 `npm ci`로 의존성을 설치합니다.
 
 ```sh
 cd backend
@@ -32,9 +32,13 @@ node --test
 
 ## 역할 경계
 
-이 백엔드는 DB·API·상태·시드와 구매 조건 구조화·추가 질문·Rule-based Matching v2를 구현합니다. 자연어는 규칙으로 처리하며 모델 별칭과 세부 변형, 명시 조건 위반과 누락 정보를 판정합니다. 실제 MCP 서버와 외부 Agent 연결은 별도 범위입니다. 프론트엔드는 저장소의 `frontend/` 폴더에 있으며 같은 HTTP API를 사용합니다.
+이 백엔드는 DB·API·상태·시드와 구매 조건 구조화·추가 질문·Rule-based Matching v2를 구현합니다. 자연어는 규칙으로 처리하며 모델 별칭과 세부 변형, 명시 조건 위반과 누락 정보를 판정합니다. stdio·HTTP MCP 서버와 토큰 인증을 포함합니다. 외부 Agent 앱 등록과 실제 Web 로그인 중계는 별도 설정이 필요합니다. 프론트엔드는 저장소의 `frontend/` 폴더에 있으며 같은 HTTP API를 사용합니다.
 
 ## 검색 기능 실행·검수
 
 저장소 루트에서 `npm run demo:search`로 독립 HTTP 데모를 실행합니다.
 [실행·테스트 가이드](docs/search-runbook.md)에 수동 API 요청, 검수 항목과 제한을 정리했습니다.
+
+## MCP
+
+저장소 루트에서 `npm --prefix backend ci`로 설치한 뒤 `npm run start:mcp` 또는 `npm run start:mcp:http`로 실행합니다. [MCP 가이드](docs/mcp-tools.md)를 참고하세요.

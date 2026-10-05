@@ -3,10 +3,11 @@
 ## 실행 환경과 위치
 
 명령은 저장소 루트에서 실행합니다. Node.js 22.5 이상, npm과 Python 3가
-필요합니다. npm 패키지 설치나 API 키는 필요하지 않습니다. 자연어 처리는
-규칙 기반이며, 외부 Agent의 LLM 대화와 MCP 서버 자체는 이 구현에 없습니다.
+필요합니다. 전체 테스트와 MCP 실행에는 `npm --prefix backend ci`가 필요합니다. 별도 LLM API 키는 필요하지 않습니다. 자연어 처리는
+규칙 기반이며, 외부 Agent의 LLM 대화는 외부 앱이 담당하며 stdio·HTTP MCP 서버는 backend/mcp에 있습니다.
 
 ```sh
+npm --prefix backend ci
 node --version
 python3 --version
 npm run start:api
@@ -48,8 +49,7 @@ npm run demo:search
 6. 동일 요청 ID 재시도 결과 일치 확인
 
 성공 시 status: PASS와 조건·후보·판정 근거·ruleVersion이 출력됩니다.
-이 데모는 Agent 역할을 HTTP 헤더로 모사합니다. 실제 MCP 클라이언트나
-외부 Agent 연결, 브라우저 화면 조작까지 검증한 것으로 보지 않습니다.
+이 데모는 Agent 역할을 HTTP 헤더로 모사합니다. MCP 경로는 test:mcp로 별도 검증하며, 이 데모는 외부 Agent 앱 연결이나 브라우저 화면 조작을 검증하지 않습니다.
 
 ## API 수동 재현
 

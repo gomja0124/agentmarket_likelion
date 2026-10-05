@@ -4,7 +4,7 @@ import { Store } from './database.js';
 import { ApiError, forbidden, invalidState, notFound, validationError } from './errors.js';
 import { matchListings } from './matching.js';
 import { purchaseRequestResponse } from './purchase-api.js';
-import { DEMO_USER_ID } from './seed.js';
+import { authConfigFromEnv, authenticate, issueToken, requireScope, requiredScope, SCOPES } from './auth.js';
 import {
   CATEGORIES, CONDITIONS, listingMissing, normalizeListingDraft,
   normalizePurchaseRequest, purchaseRequestMissing, requestIdFrom,
@@ -35,16 +35,6 @@ function parseJsonBody(request) {
 function send(response, status, value) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(value));
-}
-
-function contextFor(request, store) {
-  const userId = request.headers['x-user-id'] || DEMO_USER_ID;
-  const actorType = String(request.headers['x-actor-type'] || 'HUMAN').toUpperCase();
-  if (!uuidPattern.test(userId) || !['HUMAN', 'AGENT'].includes(actorType)) {
-    throw new ApiError(401, 'UNAUTHORIZED', '데모 사용자 또는 호출 주체가 올바르지 않습니다.');
-  }
-  store.ensureUser(userId);
-  return { userId, actorType };
 }
 
 function humanOnly(context, action) {
@@ -115,27 +105,58 @@ function categorySchema(category) {
   };
 }
 
-export function createApiServer({ dbPath, seed = true, store = new Store({ dbPath, seed }) } = {}) {
+export function createApiServer({
+  dbPath, seed = true, store = new Store({ dbPath, seed }),
+  auth = authConfigFromEnv(), corsOrigin = process.env.AGENT_MARKET_CORS_ORIGIN || '*',
+} = {}) {
   const server = createServer(async (request, response) => {
-    response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type,Idempotency-Key,X-User-Id,X-Actor-Type');
+    response.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    if (corsOrigin !== '*') response.setHeader('Vary', 'Origin');
+    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Idempotency-Key,X-User-Id,X-Actor-Type,X-Web-Secret');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
 
     let context;
     let body = {};
     let requestPath = '';
     try {
-      context = contextFor(request, store);
       const url = new URL(request.url, 'http://localhost');
       const path = url.pathname.replace(/\/$/, '') || '/';
       requestPath = path;
       const segments = path.split('/').filter(Boolean).map(segment => decodeURIComponent(segment));
       const method = request.method;
+
+      // health는 인증 없이 열어둔다(배포 환경 readiness 확인용).
+      if (method === 'GET' && segments.join('/') === 'api/health') {
+        send(response, 200, { status: 'ok', database: 'sqlite', step: 1, authMode: auth.mode }); return;
+      }
+
+      context = authenticate(request, store, auth, now());
+      requireScope(context, requiredScope(method, path));
       if (['POST', 'PATCH', 'PUT'].includes(method)) body = await parseJsonBody(request);
 
-      if (method === 'GET' && segments.join('/') === 'api/health') {
-        send(response, 200, { status: 'ok', database: 'sqlite', step: 1 }); return;
+      if (method === 'GET' && segments.join('/') === 'api/me') {
+        send(response, 200, {
+          userId: context.userId, actorType: context.actorType,
+          scopes: context.scopes ?? SCOPES, tokenId: context.tokenId ?? null, tokenName: context.tokenName ?? null,
+          nickname: store.getUser(context.userId)?.nickname ?? null,
+        }); return;
+      }
+      if (segments.join('/') === 'api/agent-tokens' && method === 'GET') {
+        humanOnly(context, 'Agent 토큰을 조회');
+        send(response, 200, store.listAgentTokens(context.userId)); return;
+      }
+      if (segments.join('/') === 'api/agent-tokens' && method === 'POST') {
+        humanOnly(context, 'Agent 토큰을 발급');
+        send(response, 201, issueToken(store, context.userId, body, now())); return;
+      }
+      if (method === 'DELETE' && segments.length === 3 && segments[0] === 'api' && segments[1] === 'agent-tokens') {
+        humanOnly(context, 'Agent 토큰을 폐기');
+        const token = store.getAgentToken(segments[2]);
+        if (!token) throw notFound('Agent 토큰을 찾을 수 없습니다.');
+        requireOwner(token.userId, context);
+        send(response, 200, store.revokeAgentToken(token.id, now())); return;
       }
       if (method === 'GET' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'categories' && segments[3] === 'schema') {
         send(response, 200, categorySchema(segments[2].toUpperCase())); return;

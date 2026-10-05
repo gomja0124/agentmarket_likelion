@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { DEMO_USER_ID, SEED_SELLER_ID, seedListings } from './seed.js';
 
-const migrationPath = fileURLToPath(new URL('./migrations/001_step1.sql', import.meta.url));
+const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql']
+  .map(file => fileURLToPath(new URL(file, import.meta.url)));
 const json = value => JSON.stringify(value ?? []);
 const parseJson = value => JSON.parse(value || '[]');
 let savepointCounter = 0;
@@ -50,6 +51,15 @@ function draftFromRow(row) {
   };
 }
 
+function tokenFromRow(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id, userId: row.user_id, name: row.name, tokenPrefix: row.token_prefix,
+    scopes: parseJson(row.scopes_json), createdAt: row.created_at, lastUsedAt: row.last_used_at,
+    expiresAt: row.expires_at, revokedAt: row.revoked_at,
+  };
+}
+
 function requestFromRow(row) {
   if (!row) return undefined;
   return {
@@ -68,7 +78,7 @@ export class Store {
     if (absolutePath !== ':memory:') mkdirSync(dirname(absolutePath), { recursive: true });
     this.db = new DatabaseSync(absolutePath);
     this.db.exec('PRAGMA foreign_keys = ON;');
-    this.db.exec(readFileSync(migrationPath, 'utf8'));
+    for (const migrationPath of migrationPaths) this.db.exec(readFileSync(migrationPath, 'utf8'));
     if (!this.db.prepare('PRAGMA table_info(purchase_requests)').all().some(column => column.name === 'skipped_question_fields_json')) {
       this.db.exec("ALTER TABLE purchase_requests ADD COLUMN skipped_question_fields_json TEXT NOT NULL DEFAULT '[]'");
     }
@@ -237,6 +247,30 @@ export class Store {
   saveIdempotentResponse(userId, requestId, operation, response, createdAt) {
     this.db.prepare(`INSERT INTO idempotency_keys (user_id, request_id, operation, response_json, created_at)
       VALUES (?, ?, ?, ?, ?)`).run(userId, requestId, operation, JSON.stringify(response), createdAt);
+  }
+
+  createAgentToken({ id, userId, name, tokenHash, tokenPrefix, scopes, createdAt, expiresAt = null }) {
+    this.db.prepare(`INSERT INTO agent_tokens (id, user_id, name, token_hash, token_prefix, scopes_json, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, userId, name, tokenHash, tokenPrefix, json(scopes), createdAt, expiresAt);
+    return this.getAgentToken(id);
+  }
+  getAgentToken(id) { return tokenFromRow(this.db.prepare('SELECT * FROM agent_tokens WHERE id = ?').get(id)); }
+  findAgentTokenByHash(tokenHash) {
+    return tokenFromRow(this.db.prepare('SELECT * FROM agent_tokens WHERE token_hash = ?').get(tokenHash));
+  }
+  listAgentTokens(userId) {
+    return this.db.prepare('SELECT * FROM agent_tokens WHERE user_id = ? ORDER BY created_at DESC, id').all(userId).map(tokenFromRow);
+  }
+  touchAgentToken(id, usedAt) {
+    this.db.prepare('UPDATE agent_tokens SET last_used_at = ? WHERE id = ?').run(usedAt, id);
+  }
+  revokeAgentToken(id, revokedAt) {
+    this.db.prepare('UPDATE agent_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(revokedAt, id);
+    return this.getAgentToken(id);
+  }
+  getUser(id) {
+    const row = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    return row ? { id: row.id, nickname: row.nickname, createdAt: row.created_at } : undefined;
   }
 
   close() { this.db.close(); }

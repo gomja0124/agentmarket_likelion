@@ -234,3 +234,18 @@ Idempotency-Key: purchase-draft-001
 Use the returned id to review with GET /api/purchase-requests/:id. The human Web
 client POSTs /confirm; the confirmed response then points to /search. The local
 identity headers shown here are demo-only and are not authentication.
+
+
+## Token authentication and MCP integration
+
+GET /api/me returns the bound user, actor type and scopes. Human-only token
+management is GET/POST /api/agent-tokens and DELETE /api/agent-tokens/:id.
+POST accepts name, scopes (read, listing:write, purchase:write, search) and optional
+expiresInDays (1–365). Token plaintext is returned once; storage contains its hash.
+Bearer token requests always act as AGENT, regardless of X-Actor-Type.
+
+Demo mode preserves local Web headers. Strict mode requires verified Agent tokens
+or a trusted Web server's X-User-Id and X-Web-Secret headers; the current static Web
+cannot call strict API directly. GET health is public and now adds authMode.
+Token scopes and ownership are both enforced, and Agents cannot publish or confirm.
+See [MCP guide](mcp-tools.md) for transport setup and deployment limitations.
