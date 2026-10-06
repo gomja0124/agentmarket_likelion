@@ -13,17 +13,35 @@ import {
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const now = () => new Date().toISOString();
 
-function parseJsonBody(request) {
+const MAX_BODY_BYTES = 1_500_000;
+const MAX_DRAIN_BYTES = 8_000_000;
+
+/**
+ * 본문을 읽는다. 제한을 넘으면 413을 돌려줄 수 있도록 소켓을 바로 끊지 않고 남은 본문을 비운다.
+ * (끊어버리면 클라이언트는 413 대신 ECONNRESET을 본다.) 비정상적으로 큰 본문만 MAX_DRAIN_BYTES에서 끊는다.
+ */
+function parseJsonBody(request, response) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let received = 0;
+    let overflow = false;
     request.on('data', chunk => {
-      body += chunk;
-      if (body.length > 1_500_000) {
-        reject(new ApiError(413, 'PAYLOAD_TOO_LARGE', '요청 본문이 너무 큽니다.'));
-        request.destroy();
+      received += chunk.length;
+      if (overflow) {
+        if (received > MAX_DRAIN_BYTES) request.destroy();
+        return;
       }
+      if (received > MAX_BODY_BYTES) {
+        overflow = true;
+        body = '';
+        response.setHeader('Connection', 'close');
+        reject(new ApiError(413, 'PAYLOAD_TOO_LARGE', `요청 본문이 너무 큽니다. 최대 ${MAX_BODY_BYTES} bytes.`));
+        return;
+      }
+      body += chunk;
     });
     request.on('end', () => {
+      if (overflow) return;
       if (!body) return resolve({});
       try { resolve(JSON.parse(body)); }
       catch { reject(new ApiError(400, 'INVALID_JSON', 'JSON 요청 본문을 확인해 주세요.')); }
@@ -134,7 +152,7 @@ export function createApiServer({
 
       context = authenticate(request, store, auth, now());
       requireScope(context, requiredScope(method, path));
-      if (['POST', 'PATCH', 'PUT'].includes(method)) body = await parseJsonBody(request);
+      if (['POST', 'PATCH', 'PUT'].includes(method)) body = await parseJsonBody(request, response);
 
       if (method === 'GET' && segments.join('/') === 'api/me') {
         send(response, 200, {
@@ -222,7 +240,7 @@ export function createApiServer({
         const draft = runCommand(store, context, request, body, {
           actionType: 'CREATE_LISTING_DRAFT', targetType: 'ListingDraft', operation: path,
           targetId: result => result.id,
-        }, () => store.saveDraft(normalizeListingDraft({ ...source, ...body, source: context.actorType === 'AGENT' ? 'AGENT' : 'HUMAN', sourceListingId: source.id },
+        }, () => store.saveDraft(normalizeListingDraft({ ...source, ...body, sourceListingId: source.id },
           { userId: context.userId, actorType: context.actorType, now: now(), id: randomUUID() })));
         send(response, 201, draft); return;
       }
