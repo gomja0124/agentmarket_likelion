@@ -157,3 +157,14 @@ test('stdio mode also works with a bearer token against a strict backend', async
     api.store.close();
   }
 });
+
+test('oversized MCP request gets a 413 JSON-RPC error, not a reset', async () => {
+  await withStack(async ({ issue, mcpUrl }) => {
+    const token = (await issue('big', ['read'])).token;
+    const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}` };
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'a'.repeat(1_500_000) } });
+    const response = await fetch(mcpUrl, { method: 'POST', headers, body });
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, -32700);
+  });
+});

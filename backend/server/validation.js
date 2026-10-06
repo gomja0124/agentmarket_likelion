@@ -63,7 +63,8 @@ export function normalizeListingDraft(payload, { existing, userId, actorType, no
   const merged = { ...(existing || {}), ...payload };
   const category = enumValue(merged.category, CATEGORIES, 'category');
   const condition = enumValue(merged.condition, CONDITIONS, 'condition');
-  const source = enumValue(merged.source ?? (actorType === 'AGENT' ? 'AGENT' : 'HUMAN'), SOURCES, 'source');
+  // 작성 주체는 요청 본문이 아니라 인증된 호출 주체에서만 정한다. 수정 시에는 처음 만든 주체를 유지한다.
+  const source = enumValue(existing?.source ?? (actorType === 'AGENT' ? 'AGENT' : 'HUMAN'), SOURCES, 'source');
   const normalized = {
     id: existing?.id || id,
     sellerId: existing?.sellerId || userId,
@@ -106,7 +107,7 @@ export function normalizePurchaseRequest(payload, { existing, userId, actorType,
   const normalized = {
     id: existing?.id || id,
     buyerId: existing?.buyerId || userId,
-    source: enumValue(merged.source ?? (actorType === 'AGENT' ? 'AGENT' : 'HUMAN'), SOURCES, 'source'),
+    source: enumValue(existing?.source ?? (actorType === 'AGENT' ? 'AGENT' : 'HUMAN'), SOURCES, 'source'),
     category: enumValue(merged.category, CATEGORIES, 'category'),
     modelQuery: text(merged.modelQuery, 'modelQuery', { max: 200 }),
     maxBudgetKrw: integer(merged.maxBudgetKrw, 'maxBudgetKrw'),
