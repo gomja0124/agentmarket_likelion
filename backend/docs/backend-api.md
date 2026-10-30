@@ -17,7 +17,7 @@ The proposal describes PostgreSQL for the eventual service. This thin demo uses 
 
 ## Demo identity only
 
-For local UI/API integration, requests default to demo user `00000000-0000-4000-8000-000000000001` and a human actor. The MCP adapter may pass `X-User-Id`, `X-Actor-Type: AGENT`, and `Idempotency-Key` headers. Those headers are **not authentication**: this server has no login/token verification and must only bind to localhost. Production must derive user and actor identity from verified credentials before exposing these routes.
+For local UI/API integration, requests default to demo user `00000000-0000-4000-8000-000000000001` and a human actor. Demo-mode `X-User-Id` and `X-Actor-Type` headers are **not authentication**. Agent bearer tokens are validated with scopes, expiry and revocation. In `strict` mode, human requests require a server-held `X-Web-Secret`; the static Web frontend cannot hold that secret and still needs a login/session relay before public deployment.
 
 An Agent may create/update drafts and request search for a purchase request already confirmed by its owner. Only the human owner can publish a listing, confirm a purchase request, or deactivate a listing. A confirmed request is the human authorization prerequisite for later Agent search calls.
 
@@ -63,7 +63,7 @@ Errors use `{ "code": "...", "message": "...", "details": {} }` where applicable
 | 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds local limit |
 | 422 | `VALIDATION_ERROR` | Invalid fields or missing required values |
 
-The local identity headers are a temporary adapter seam, not an authorization system. Purchase requests are only returned from the owner-scoped `mine` route; no seller-facing request route exists.
+The local identity headers are a temporary adapter seam, not an authorization system. Purchase requests are only returned from the owner-scoped `mine` route; no seller-facing private request route exists. Step 2 public demand routes are documented in [step2-api.md](step2-api.md).
 
 ## Data relationships
 

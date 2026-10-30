@@ -20,12 +20,13 @@ const demoUser = '00000000-0000-4000-8000-000000000001';
 const SPEC_TOOLS = ['get_category_schema', 'create_listing_draft', 'update_listing_draft', 'create_purchase_request_draft', 'update_purchase_request_draft', 'search_listings', 'get_listing'];
 const HELPER_TOOLS = ['whoami', 'get_market_guide', 'browse_listings', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests'];
 
-async function withMcp(run, { userId = demoUser, token = '', apiOptions = {} } = {}) {
+async function withMcp(run, { userId = demoUser, token = '', apiOptions = {}, step2 = false } = {}) {
   const api = createApiServer({ dbPath: ':memory:', ...apiOptions });
   await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${api.address().port}`;
   const client = new Client({ name: 'e2e-test', version: '0.0.0' });
   const env = { ...process.env, AGENT_MARKET_API_URL: base, AGENT_MARKET_WEB_URL: 'http://web.local' };
+  env.AGENT_MARKET_ENABLE_STEP2 = step2 ? '1' : '0';
   delete env.AGENT_MARKET_TOKEN;
   if (token) env.AGENT_MARKET_TOKEN = token; else env.AGENT_MARKET_USER_ID = userId;
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(repoRoot, 'mcp/index.js')], cwd: repoRoot, env, stderr: 'pipe' }));
@@ -70,6 +71,29 @@ test('tool set matches 03 MCP Tools Spec and exposes no publish/confirm', async 
     assert.deepEqual(schema.value.minimumPurchaseConditions, ['category', 'maxBudgetKrw']);
     assert.ok(schema.value.questionHints.length > 0);
   });
+});
+
+test('Step 2 opt-in tools can propose a private demand but cannot publish or connect', async () => {
+  await withMcp(async ({ call, human, client }) => {
+    const names = (await client.listTools()).tools.map(tool => tool.name);
+    assert.ok(names.includes('create_public_demand_draft'));
+    assert.ok(names.includes('browse_matching_public_demands'));
+    assert.ok(!names.some(name => /publish|send_connection|accept_connection/.test(name)));
+    const purchase = await call('create_purchase_request_draft', { category: 'TABLET',
+      knownConstraints: { maxBudgetKrw: 650000, modelQuery: 'iPad Air' } });
+    assert.equal(purchase.isError, false);
+    const purchaseId = purchase.value.requestId;
+    await human('POST', `/api/purchase-requests/${purchaseId}/confirm`);
+    const demand = await call('create_public_demand_draft', { purchaseRequestId: purchaseId });
+    assert.equal(demand.isError, false);
+    assert.equal(demand.value.demand.status, 'DRAFT');
+    assert.equal(demand.value.humanApprovalRequired, true);
+    const edited = await call('update_public_demand_draft', { demandId: demand.value.demand.id,
+      patch: { title: 'iPad Air 256GB 구해요' } });
+    assert.equal(edited.value.demand.title, 'iPad Air 256GB 구해요');
+    const listed = await call('list_my_public_demands');
+    assert.equal(listed.value.demands.length, 1);
+  }, { step2: true });
 });
 
 test('AC-01 seller info becomes a structured ListingDraft; unknown values stay in missingFields', async () => {

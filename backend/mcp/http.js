@@ -36,17 +36,16 @@ function readBody(request, response) {
     let overflow = false;
     request.on('data', chunk => {
       received += chunk.length;
-      if (overflow) { if (received > MAX_BODY_BYTES * 8) request.destroy(); return; }
+      if (overflow) { if (received > MAX_BODY_BYTES * 8) request.destroy(new Error('PAYLOAD_TOO_LARGE')); return; }
       if (received > MAX_BODY_BYTES) {
         overflow = true; body = '';
         response.setHeader('Connection', 'close');
-        reject(new Error('PAYLOAD_TOO_LARGE'));
         return;
       }
       body += chunk;
     });
     request.on('end', () => {
-      if (overflow) return;
+      if (overflow) return reject(new Error('PAYLOAD_TOO_LARGE'));
       if (!body) return resolve(undefined);
       try { resolve(JSON.parse(body)); } catch { reject(new Error('INVALID_JSON')); }
     });

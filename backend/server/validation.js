@@ -78,7 +78,7 @@ export function normalizeListingDraft(payload, { existing, userId, actorType, no
     condition,
     accessories: text(merged.accessories, 'accessories', { max: 2000 }),
     priceKrw: integer(merged.priceKrw, 'priceKrw'),
-    images: stringArray(merged.images, 'images', { maxItems: 20, maxLength: 200000 }),
+    images: stringArray(merged.images, 'images', { maxItems: 20, maxLength: 1_400_000 }),
     missingFields: [],
     nextQuestions: stringArray(merged.nextQuestions, 'nextQuestions'),
     status: 'DRAFT',
@@ -135,5 +135,5 @@ export function normalizePurchaseRequest(payload, { existing, userId, actorType,
 }
 
 export function requestIdFrom(request, body = {}) {
-  return request.headers['idempotency-key'] || body.requestId || null;
+  return request.headers['idempotency-key'] || (body && typeof body === 'object' ? body.requestId : null) || null;
 }
