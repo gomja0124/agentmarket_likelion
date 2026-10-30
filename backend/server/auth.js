@@ -86,6 +86,7 @@ export function requiredScope(method, path) {
   if (path.endsWith('/search')) return 'search';
   if (path.startsWith('/api/listing-drafts') || /^\/api\/listings\/[^/]+\/drafts$/.test(path)) return 'listing:write';
   if (path.startsWith('/api/purchase-requests')) return 'purchase:write';
+  if (path.startsWith('/api/public-demands')) return 'purchase:write';
   return null;
 }
 

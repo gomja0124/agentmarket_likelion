@@ -5,6 +5,11 @@ const base = window.AGENT_MARKET_API_BASE || '';
 export const isDemo = !base;
 const key = 'agent-market-step1-v2';
 const demoUser = '00000000-0000-4000-8000-000000000001';
+const seedSeller = '00000000-0000-4000-8000-000000000002';
+const accountKey = 'agent-market-demo-account';
+export const demoAccounts = { buyer: demoUser, seller: seedSeller };
+export const currentDemoAccount = () => globalThis.localStorage?.getItem?.(accountKey) === seedSeller ? 'seller' : 'buyer';
+export const switchDemoAccount = account => localStorage.setItem(accountKey, demoAccounts[account] || demoUser);
 const initialState = () => ({ listings: seedListings, drafts: [], requests: [] });
 const read = () => {
   try { return JSON.parse(localStorage.getItem(key)) || initialState(); }
@@ -15,7 +20,7 @@ const id = () => crypto.randomUUID();
 
 async function request(path, options = {}) {
   const response = await fetch(`${base}${path}`, {
-    headers: { 'Content-Type': 'application/json' }, ...options,
+    headers: { 'Content-Type': 'application/json', 'X-User-Id': demoAccounts[currentDemoAccount()] }, ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   if (!response.ok) {
@@ -27,6 +32,9 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  async authMode() {
+    return isDemo ? 'local' : (await request('/api/health')).authMode;
+  },
   async listListings() {
     return isDemo ? read().listings : request('/api/listings?status=ACTIVE');
   },
@@ -124,5 +132,53 @@ export const api = {
     const item = state.requests.find(value => value.id === requestId);
     if (item?.status !== 'CONFIRMED') throw new Error('구매자가 조건을 확인한 뒤 검색할 수 있습니다.');
     return matchListings(state.listings, item);
+  },
+  async listMyPublicDemands() {
+    return isDemo ? [] : request('/api/public-demands/mine');
+  },
+  async createPublicDemandDraft(purchaseRequestId) {
+    if (isDemo) throw new Error('공개 수요 기능은 백엔드를 실행한 뒤 이용할 수 있습니다.');
+    return request(`/api/purchase-requests/${encodeURIComponent(purchaseRequestId)}/public-demand`, { method: 'POST' });
+  },
+  async updatePublicDemand(demandId, changes) {
+    if (isDemo) throw new Error('공개 수요 기능은 백엔드를 실행한 뒤 이용할 수 있습니다.');
+    return request(`/api/public-demands/${encodeURIComponent(demandId)}`, { method: 'PATCH', body: changes });
+  },
+  async changePublicDemandStatus(demandId, action) {
+    if (isDemo) throw new Error('공개 수요 기능은 백엔드를 실행한 뒤 이용할 수 있습니다.');
+    return request(`/api/public-demands/${encodeURIComponent(demandId)}/${encodeURIComponent(action)}`, { method: 'POST' });
+  },
+  async matchingPublicDemands(listingId) {
+    if (isDemo) return [];
+    return request(`/api/listings/${encodeURIComponent(listingId)}/public-demands`);
+  },
+  async listConnections() {
+    return isDemo ? [] : request('/api/connection-requests/mine');
+  },
+  async createConnectionRequest(publicDemandId, listingId) {
+    if (isDemo) throw new Error('연결 요청 기능은 백엔드를 실행한 뒤 이용할 수 있습니다.');
+    return request('/api/connection-requests', { method: 'POST', body: { publicDemandId, listingId } });
+  },
+  async respondConnectionRequest(connectionId, action) {
+    if (isDemo) throw new Error('연결 요청 기능은 백엔드를 실행한 뒤 이용할 수 있습니다.');
+    return request(`/api/connection-requests/${encodeURIComponent(connectionId)}/${encodeURIComponent(action)}`, { method: 'POST' });
+  },
+  async listNotifications() {
+    return isDemo ? [] : request('/api/notifications/mine');
+  },
+  async markNotificationRead(notificationId) {
+    if (isDemo) return null;
+    return request(`/api/notifications/${encodeURIComponent(notificationId)}/read`, { method: 'POST' });
+  },
+  async listAgentTokens() {
+    return isDemo ? [] : request('/api/agent-tokens');
+  },
+  async issueAgentToken(details) {
+    if (isDemo) throw new Error('Agent 연결은 백엔드를 실행한 뒤 이용할 수 있습니다.');
+    return request('/api/agent-tokens', { method: 'POST', body: details });
+  },
+  async revokeAgentToken(tokenId) {
+    if (isDemo) throw new Error('Agent 연결은 백엔드를 실행한 뒤 이용할 수 있습니다.');
+    return request(`/api/agent-tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' });
   },
 };

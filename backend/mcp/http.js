@@ -29,14 +29,23 @@ function rpcError(response, status, code, message) {
   sendJson(response, status, { jsonrpc: '2.0', error: { code, message }, id: null });
 }
 
-function readBody(request) {
+function readBody(request, response) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let received = 0;
+    let overflow = false;
     request.on('data', chunk => {
+      received += chunk.length;
+      if (overflow) { if (received > MAX_BODY_BYTES * 8) request.destroy(new Error('PAYLOAD_TOO_LARGE')); return; }
+      if (received > MAX_BODY_BYTES) {
+        overflow = true; body = '';
+        response.setHeader('Connection', 'close');
+        return;
+      }
       body += chunk;
-      if (body.length > MAX_BODY_BYTES) { reject(new Error('PAYLOAD_TOO_LARGE')); request.destroy(); }
     });
     request.on('end', () => {
+      if (overflow) return reject(new Error('PAYLOAD_TOO_LARGE'));
       if (!body) return resolve(undefined);
       try { resolve(JSON.parse(body)); } catch { reject(new Error('INVALID_JSON')); }
     });
@@ -127,7 +136,7 @@ export function createMcpHttpServer({
     }
 
     let body;
-    try { body = await readBody(request); }
+    try { body = await readBody(request, response); }
     catch (error) {
       rpcError(response, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 400, -32700, error.message === 'PAYLOAD_TOO_LARGE' ? '요청 본문이 너무 큽니다.' : 'JSON 본문을 확인하세요.');
       return;
