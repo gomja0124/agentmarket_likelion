@@ -2,6 +2,8 @@
 
 외부 Agent의 판매·구매 초안을 사람이 검토·승인하고, 자체 DB 매물을 검색하는 Web MVP입니다. Step 2의 공개 구매 수요, 판매자 역방향 탐색, 사람 승인 연결 요청, 중복 방지 알림도 로컬 데모로 구현했습니다.
 
+`dokyeong-merge`는 `integration/buyer-features`와 `codex/agentmarket-step1`을 병합한 뒤 UAT·11/02 회의 방향에 맞춰 구매자 중심 진입, 자연어 조건 입력, 역할별 메뉴, 입력·복귀 안정성, 매물 재활성화와 한글 모델 별칭 검색을 보완한 브랜치입니다.
+
 ## 구조
 
 - `frontend/`: `feat/gomja-frontend`에서 가져온 HTML·CSS·JavaScript 화면, API 어댑터, 데모 데이터, 테스트
@@ -62,3 +64,7 @@ API 실행 후 `npm run start:mcp`로 stdio MCP, `npm run start:mcp:http`로
 필요하며 공유 비밀을 브라우저 설정에 넣지 않습니다.
 
 Step 2 MCP 도구는 `AGENT_MARKET_ENABLE_STEP2=1`로 MCP 서버를 실행할 때만 추가됩니다. Agent는 공개 수요 **초안**과 탐색·알림 조회까지만 할 수 있고 공개·연결 요청·수락은 Web에서 사람이 직접 처리합니다.
+
+## 공개 배포 전 확인
+
+`backend/docker-compose.yml`은 strict 인증 API와 원격 MCP만 구성합니다. 실제 Web 로그인·세션·서버 측 API 중계, 운영 DB·백업, HTTPS 공개 도메인과 외부 Agent 앱 등록은 아직 연결되지 않았습니다. `X-Web-Secret`을 브라우저에 넣거나 demo 계정 헤더를 공개 서비스 인증으로 사용하지 마세요. Step 2 도구를 배포에서 사용할 때는 `backend/.env`의 `AGENT_MARKET_ENABLE_STEP2=1`을 설정합니다.

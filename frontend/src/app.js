@@ -1,13 +1,15 @@
 import { api, currentDemoAccount, isDemo, switchDemoAccount } from './api.js';
 import { categories, conditions, formatPrice, labelFor } from './data.js';
 import { listingMissing, requestMissing, unresolvedFields } from './matching.js';
+import { matchesBrowseQuery } from './model-search.js';
 
 const root = document.querySelector('#app');
 const state = { page: 'home', listings: [], myListings: [], drafts: [], purchaseRequests: [], results: [], selected: null,
   listingDraft: null, purchaseDraft: null, publicDemands: [], connections: [], notifications: [],
   selectedDemand: null, sellerMatches: [], matchingListing: null,
   tokens: [], issuedToken: null, demoAuth: false,
-  searchTerm: '', category: 'ALL', notice: '', error: '' };
+  searchTerm: '', category: 'ALL', notice: '', error: '', intentText: '',
+  role: 'buyer', accountDrafts: {}, demandFormDraft: null };
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const icon = (name, size = 20) => {
   const paths = {
@@ -34,27 +36,30 @@ const productArt = item => item.images?.[0]
 
 function navigate(page, extra = {}) {
   if (page !== 'agent') state.issuedToken = null;
+  history.replaceState({ page: state.page, scrollY: window.scrollY }, '', location.href);
   Object.assign(state, extra, { page, error: '', notice: '' });
-  history.replaceState(null, '', `#${page}`);
+  history.pushState({ page, scrollY: 0 }, '', `#${page}`);
   render(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+const currentRole = () => state.demoAuth ? currentDemoAccount() : state.role;
 const navButton = (page, label) => `<button class="nav-link ${state.page === page ? 'active' : ''}" data-nav="${page}">${label}</button>`;
 
 function header() {
+  const buyer = currentRole() === 'buyer';
   return `<header class="site-header"><div class="container header-inner">
     <button class="brand" data-nav="home" aria-label="Agent Market 홈"><span class="brand-mark">a<span>.</span></span><span>agent market</span></button>
-    <nav class="desktop-nav" aria-label="주요 메뉴">${navButton('browse', '매물 둘러보기')}${navButton('buy', '맞춤 검색')}${navButton('demand', '구해요·알림')}${navButton('mine', '내 판매글')}${navButton('agent', 'Agent 연결')}</nav>
-    <button class="header-sell" data-new-listing>${icon('plus', 16)} 판매하기</button>
+    <nav class="desktop-nav" aria-label="주요 메뉴">${buyer ? `${navButton('buy', '내 조건으로 찾기')}${navButton('demand', '내 구해요·알림')}${navButton('browse', '매물 둘러보기')}` : `${navButton('mine', '내 판매글·구해요')}${navButton('browse', '매물 둘러보기')}`}${navButton('agent', 'Agent 연결')}</nav>
+    ${buyer ? `<button class="header-sell" data-nav="buy">${icon('search', 16)} 구해요 시작</button>` : `<button class="header-sell" data-new-listing>${icon('plus', 16)} 판매글 등록</button>`}
   </div></header>`;
 }
 
 function footer() {
-  return `<footer class="site-footer"><div class="container footer-inner"><div><span class="footer-brand">agent market<span>.</span></span><p>좋은 기기와 좋은 선택이 만나는 곳.</p></div><div class="footer-note">사람의 확인으로 완성되는 마켓</div></div></footer><nav class="mobile-nav" aria-label="모바일 주요 메뉴"><button data-nav="home">홈</button><button data-nav="browse">둘러보기</button><button data-nav="buy">맞춤 검색</button><button data-nav="demand">구해요</button><button data-nav="mine">내 판매글</button><button data-nav="agent">Agent</button></nav>`;
+  const buyer = currentRole() === 'buyer';
+  return `<footer class="site-footer"><div class="container footer-inner"><div><span class="footer-brand">agent market<span>.</span></span><p>원하는 기기를 찾는 새로운 방법.</p></div><div class="footer-note">사람의 확인으로 완성되는 연결</div></div></footer><nav class="mobile-nav" aria-label="모바일 주요 메뉴"><button data-nav="home">홈</button>${buyer ? `<button data-nav="buy">조건 입력</button><button data-nav="demand">내 구해요</button><button data-nav="browse">매물</button>` : `<button data-nav="mine">내 판매글</button><button data-nav="browse">매물</button>`}<button data-nav="agent">Agent</button></nav>`;
 }
 function demoAccountBar() {
-  if (!state.demoAuth) return '';
-  const account = currentDemoAccount();
-  return `<div class="demo-account-bar"><div class="container"><span>시연 계정</span><button data-switch-account="buyer" ${account === 'buyer' ? 'aria-current="true"' : ''}>구매자</button><button data-switch-account="seller" ${account === 'seller' ? 'aria-current="true"' : ''}>판매자</button><small>판매자 계정에는 샘플 매물 12개가 있습니다.</small></div></div>`;
+  const role = currentRole();
+  return `<div class="demo-account-bar"><div class="container"><span>${state.demoAuth ? '시연 계정' : '이용 화면'}</span><button data-switch-account="buyer" ${role === 'buyer' ? 'aria-current="true"' : ''}>구매자</button><button data-switch-account="seller" ${role === 'seller' ? 'aria-current="true"' : ''}>판매자</button><small>${state.demoAuth ? '판매자 계정에는 샘플 매물 12개가 있습니다.' : '화면만 전환되며 계정은 유지됩니다.'}</small></div></div>`;
 }
 
 function card(item, result) {
@@ -68,26 +73,36 @@ function card(item, result) {
 }
 
 function home() {
-  return `<section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow"><span class="eyebrow-dot"></span> 더 똑똑한 중고 기기 거래</span>
-    <h1>내게 딱 맞는 기기,<br/><em>쉽게 찾고</em> 안심하고.</h1><p>핸드폰과 태블릿, 이제 조건에 맞게 찾아보세요.<br/>Agent가 정리한 정보는 내가 직접 확인하고 결정합니다.</p>
-    <div class="hero-actions"><button class="btn btn-dark" data-nav="buy">내 조건으로 찾기 ${icon('arrow', 18)}</button><button class="btn btn-light" data-nav="browse">매물 둘러보기</button></div>
-    <div class="hero-stats"><div><strong>12<span>+</span></strong><small>살펴볼 기기</small></div><i></i><div><strong>2</strong><small>지원 카테고리</small></div><i></i><div><strong>100<span>%</span></strong><small>사람이 최종 결정</small></div></div>
+  if (currentRole() === 'seller') return sellerHome();
+  return `<section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow"><span class="eyebrow-dot"></span> 원하는 기기를 먼저 말해 주세요</span>
+    <h1>찾는 조건을 말하면,<br/><em>맞는 매물을 제안해요.</em></h1><p>예산과 원하는 기기를 입력하면 여러 매물을 비교해 볼 수 있어요.<br/>맞는 매물이 없으면 “구해요”를 공개해 판매자의 제안을 받을 수 있습니다.</p>
+    <div class="hero-actions"><button class="btn btn-dark" data-nav="buy">내 조건으로 구해요 ${icon('arrow', 18)}</button><button class="btn btn-light" data-nav="browse">현재 매물 ${state.listings.filter(x => x.status === 'ACTIVE').length}개 보기</button></div>
+    <div class="hero-stats"><div><strong>${state.listings.filter(x => x.status === 'ACTIVE').length}</strong><small>등록된 기기</small></div><i></i><div><strong>2</strong><small>지원 카테고리</small></div><i></i><div><strong>100<span>%</span></strong><small>사람이 최종 결정</small></div></div>
   </div><div class="hero-visual"><div class="hero-circle circle-one"></div><div class="hero-circle circle-two"></div><div class="hero-device tablet-art"><div class="device-screen"><div class="screen-glow"></div><div class="screen-orb"></div></div></div><div class="hero-device phone-front"><div class="device-screen"><div class="screen-glow"></div><div class="screen-orb"></div></div></div><div class="float-card float-top">${icon('spark', 18)} <span>나에게 맞는 매물 발견</span></div><div class="float-card float-bottom">${icon('shield', 18)} <span>확인하고 직접 결정</span></div></div></div></section>
-  <section class="value-strip"><div class="container value-grid"><div><span class="value-icon">${icon('search', 22)}</span><div><strong>조건으로 빠르게</strong><p>예산과 원하는 모델에 맞게 찾기</p></div></div><div><span class="value-icon">${icon('spark', 22)}</span><div><strong>Agent 초안도 내 손으로</strong><p>정리된 정보를 직접 검토하고 수정</p></div></div><div><span class="value-icon">${icon('shield', 22)}</span><div><strong>모르는 정보는 그대로</strong><p>확인되지 않은 부분은 명확하게 표시</p></div></div></div></section>
+  <section class="value-strip"><div class="container value-grid"><div><span class="value-icon">${icon('spark', 22)}</span><div><strong>1. 조건 말하기</strong><p>기기·예산을 자연어로 시작</p></div></div><div><span class="value-icon">${icon('search', 22)}</span><div><strong>2. 복수 후보 비교</strong><p>맞는 이유와 확인할 정보 보기</p></div></div><div><span class="value-icon">${icon('shield', 22)}</span><div><strong>3. 없으면 구해요 공개</strong><p>판매자 연결은 직접 승인</p></div></div></div></section>
   <section class="section container"><div class="section-heading"><div><span class="section-kicker">FRESH FINDS</span><h2>새로 올라온 기기</h2><p>새로운 시작을 기다리는 기기를 만나보세요.</p></div><button class="text-link" data-nav="browse">전체 보기 ${icon('arrow', 18)}</button></div><div class="product-grid">${state.listings.filter(x => x.status === 'ACTIVE').slice(0, 4).map(item => card(item)).join('')}</div></section>
-  <section class="cta-band"><div class="container cta-inner"><div><span class="section-kicker">READY TO SELL?</span><h2>사용하지 않는 기기,<br/>다음 사람에게 이어주세요.</h2><p>판매 정보를 입력하고 초안을 확인한 뒤 직접 게시할 수 있어요.</p></div><button class="btn btn-white" data-nav="sell">판매글 작성하기 ${icon('arrow', 18)}</button></div></section>`;
+  <section class="cta-band"><div class="container cta-inner"><div><span class="section-kicker">STILL LOOKING?</span><h2>맞는 매물이 없어도<br/>요청을 남길 수 있어요.</h2><p>구매 조건을 확인한 뒤 공개하면 판매자가 자신의 기기로 연결을 제안합니다.</p></div><button class="btn btn-white" data-nav="demand">내 구해요 확인 ${icon('arrow', 18)}</button></div></section>`;
+}
+
+function sellerHome() {
+  return `<main class="container page-main seller-home"><div class="page-intro"><span class="section-kicker">SELLER HOME</span><h1>내 기기를 찾는 구매자를 만나세요</h1><p>매물을 등록한 뒤 “맞는 구해요”에서 공개 구매 수요를 확인하고 연결을 요청할 수 있어요.</p></div>
+    <div class="hero-actions"><button class="btn btn-dark" data-new-listing>${icon('plus', 18)} 판매글 등록하기</button><button class="btn btn-light" data-nav="mine">내 판매글·맞는 구해요 ${icon('arrow', 18)}</button></div>
+    <div class="seller-overview"><div><strong>${state.myListings.filter(x => x.status === 'ACTIVE').length}</strong><span>검색 가능한 내 매물</span></div><div><strong>${state.connections.filter(x => x.sellerId).length}</strong><span>내 연결 요청</span></div></div>
+    <div class="section-heading"><div><span class="section-kicker">MY LISTINGS</span><h2>내 매물에서 시작</h2><p>활성 매물을 선택하면 조건이 맞는 구매 요청을 볼 수 있어요.</p></div><button class="text-link" data-nav="mine">전체 보기 ${icon('arrow', 18)}</button></div>
+    ${state.myListings.length ? `<div class="product-grid">${state.myListings.filter(x => x.status === 'ACTIVE').slice(0, 4).map(item => card(item)).join('')}</div>` : `<div class="empty-state"><h3>등록한 매물이 없어요</h3><p>먼저 판매글을 작성하고 직접 게시해 주세요.</p></div>`}</main>`;
 }
 
 function browse() {
   const visible = state.listings.filter(item => item.status === 'ACTIVE' && (state.category === 'ALL' || item.category === state.category) &&
-    `${item.title} ${item.brand} ${item.model}`.toLowerCase().includes(state.searchTerm.toLowerCase()));
+    matchesBrowseQuery(item, state.searchTerm));
   return `<main class="container page-main"><div class="page-intro"><span class="section-kicker">DISCOVER</span><h1>좋은 기기를 발견하는 즐거움</h1><p>직접 등록된 핸드폰과 태블릿을 살펴보세요.</p></div>
     <div class="browse-toolbar"><div class="search-box">${icon('search', 20)}<input id="browse-search" type="search" placeholder="모델명이나 브랜드 검색" value="${esc(state.searchTerm)}" aria-label="모델명이나 브랜드 검색" /></div><div class="filter-tabs"><button data-category="ALL" class="${state.category === 'ALL' ? 'selected' : ''}">전체</button><button data-category="PHONE" class="${state.category === 'PHONE' ? 'selected' : ''}">핸드폰</button><button data-category="TABLET" class="${state.category === 'TABLET' ? 'selected' : ''}">태블릿</button></div></div>
     <div class="list-count">총 <strong>${visible.length}</strong>개의 매물</div>${visible.length ? `<div class="product-grid">${visible.map(item => card(item)).join('')}</div>` : `<div class="empty-state">${icon('search', 28)}<h3>조건에 맞는 매물이 없어요</h3><p>검색어나 카테고리를 바꿔 보세요.</p></div>`}</main>`;
 }
 
 const field = (label, name, content, hint = '') => `<label class="field"><span class="field-label">${label}</span>${content}${hint ? `<small>${hint}</small>` : ''}</label>`;
-const input = (name, placeholder, value = '', type = 'text', required = false) => `<input name="${name}" type="${type}" placeholder="${placeholder}" value="${esc(value)}" ${required ? 'required' : ''} />`;
+const tomorrowDate = () => { const date = new Date(); date.setDate(date.getDate() + 1); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
+const input = (name, placeholder, value = '', type = 'text', required = false) => `<input name="${name}" type="${type}" placeholder="${placeholder}" value="${esc(value)}" ${type === 'number' ? 'min="1" step="1" inputmode="numeric"' : ''}${type === 'date' ? `min="${tomorrowDate()}"` : ''} ${required ? 'required' : ''} />`;
 const categorySelect = value => `<select name="category" required><option value="">기기를 선택해 주세요</option>${Object.entries(categories).map(([key, label]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${label}</option>`).join('')}</select>`;
 const conditionSelect = value => `<select name="condition"><option value="">상태를 선택해 주세요</option>${Object.entries(conditions).map(([key, label]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${label}</option>`).join('')}</select>`;
 const missingBox = fields => fields?.length ? `<div class="missing-box">${icon('alert', 19)}<div><strong>확인할 정보가 있어요</strong><p>${fields.map(labelFor).map(esc).join(', ')} 항목을 확인해 주세요. 알 수 없는 정보는 추정하지 않습니다.</p></div></div>` : '';
@@ -101,9 +116,9 @@ function sell() {
     ${isDemo ? `<button class="sample-link" id="load-agent-listing">${icon('spark', 18)} Agent 초안 예시 불러오기 ${icon('arrow', 16)}</button>` : ''}
     ${missingBox(unresolvedFields(draft, listingMissing))}${questionsBox(draft.nextQuestions)}
     <form id="sell-form"><div class="form-grid">${field('기기 종류 *', 'category', categorySelect(draft.category))}${field('브랜드', 'brand', input('brand', '예: Apple', draft.brand))}</div>
-    <div class="form-grid">${field('모델명 *', 'model', input('model', '예: iPhone 15 Pro', draft.model, 'text', true))}${field('저장 용량', 'storageGb', input('storageGb', '예: 256', draft.storageGb, 'number'))}</div>
+    <div class="form-grid">${field('모델명 *', 'model', input('model', '예: iPhone 15 Pro', draft.model, 'text', true))}${field('저장 용량 (선택)', 'storageGb', input('storageGb', '예: 256', draft.storageGb, 'number'), 'GB 단위 · 1GB 이상의 정수')}</div>
     ${field('제목', 'title', input('title', '제목을 입력해 주세요', draft.title))}
-    <div class="form-grid">${field('가격 *', 'priceKrw', input('priceKrw', '예: 800000', draft.priceKrw, 'number', true))}${field('제품 상태', 'condition', conditionSelect(draft.condition))}</div>
+    <div class="form-grid">${field('가격 *', 'priceKrw', input('priceKrw', '예: 800000', draft.priceKrw, 'number', true), '원 단위 · 1원 이상의 정수')}${field('제품 상태 (선택)', 'condition', conditionSelect(draft.condition))}</div>
     ${field('구성품', 'accessories', input('accessories', '예: 박스, 충전 케이블', draft.accessories))}
     ${field('상세 설명', 'description', `<textarea name="description" rows="5" placeholder="기기의 상태와 특징을 알려주세요">${esc(draft.description)}</textarea>`)}
     ${field('사진 (선택)', 'photo', `<div class="upload-box">${icon('upload', 21)}<span>사진을 선택해 주세요</span><small>사진은 표시만 하며 AI 분석에는 사용하지 않습니다.</small><input name="photo" type="file" accept="image/*" aria-label="사진 업로드" /></div>`)}
@@ -123,12 +138,13 @@ function reviewListing() {
 
 function buy() {
   const d = state.purchaseDraft || {};
-  return `<main class="container form-layout"><div class="form-head"><span class="section-kicker">FIND YOUR MATCH</span><h1>어떤 기기를 찾고 있나요?</h1><p>원하는 조건을 정리하고, 확인한 뒤 직접 검색을 시작하세요.</p></div>
+  return `<main class="container form-layout"><div class="form-head"><span class="section-kicker">FIND YOUR MATCH</span><h1>어떤 기기를 찾고 있나요?</h1><p>찾는 기기를 말하면 조건 초안을 정리합니다. 확인하고 직접 검색을 시작하세요.</p></div>
+    ${!isDemo ? `<form class="intent-panel" id="intent-form"><label for="intent-text"><strong>찾는 기기를 편하게 말해 주세요</strong><small>예: 100만 원 이하 아이패드 128GB 이상 구해요</small></label><div class="intent-entry"><textarea id="intent-text" name="naturalLanguageRequest" rows="2" maxlength="10000" placeholder="원하는 기기와 예산을 입력해 주세요">${esc(state.intentText)}</textarea><button class="btn btn-dark" type="submit">조건 정리하기 ${icon('arrow', 17)}</button></div><p>입력에서 확인된 조건만 채우며, 모호한 내용은 아래에서 직접 확인합니다.</p></form>` : `<div class="result-summary">자연어로 조건을 정리하려면 백엔드 API를 실행해 주세요. 아래 조건은 직접 입력할 수 있습니다.</div>`}
     <div class="form-columns"><div class="form-panel"><div class="panel-heading"><div class="step-number">01</div><div><h2>구매 조건 입력</h2><p>기기 종류와 예산만 있어도 시작할 수 있어요.</p></div></div>
     ${isDemo ? `<button class="sample-link" id="load-agent-request">${icon('spark', 18)} Agent 조건 초안 예시 불러오기 ${icon('arrow', 16)}</button>` : ''}
     ${missingBox(unresolvedFields(d, requestMissing))}${questionsBox(d.nextQuestions)}
-    <form id="buy-form"><div class="form-grid">${field('기기 종류 *', 'category', categorySelect(d.category))}${field('최대 예산 *', 'maxBudgetKrw', input('maxBudgetKrw', '예: 1000000', d.maxBudgetKrw, 'number', true))}</div>
-    <div class="form-grid">${field('원하는 모델', 'modelQuery', input('modelQuery', '예: iPad, Galaxy Tab', d.modelQuery), '비워 두면 모든 모델을 검색해요.')}${field('최소 저장 용량', 'storageGb', input('storageGb', '예: 128', d.storageGb, 'number'))}</div>
+    <form id="buy-form"><div class="form-grid">${field('기기 종류 *', 'category', categorySelect(d.category))}${field('최대 예산 *', 'maxBudgetKrw', input('maxBudgetKrw', '예: 1000000', d.maxBudgetKrw, 'number', true), '원 단위 · 1원 이상의 정수')}</div>
+    <div class="form-grid">${field('원하는 모델 (선택)', 'modelQuery', input('modelQuery', '예: iPad, Galaxy Tab', d.modelQuery), '비워 두면 모든 모델을 검색해요.')}${field('최소 저장 용량 (선택)', 'storageGb', input('storageGb', '예: 128', d.storageGb, 'number'), 'GB 단위 · 1GB 이상의 정수')}</div>
     <fieldset class="condition-field"><legend>원하는 제품 상태</legend><div class="choice-row">${Object.entries(conditions).map(([key, label]) => `<label class="choice"><input type="checkbox" name="conditionPreferences" value="${key}" ${(d.conditionPreferences || []).includes(key) ? 'checked' : ''} /><span>${label}</span></label>`).join('')}</div><small>선택하지 않으면 모든 상태를 포함해요.</small></fieldset>
     <div class="form-actions"><button type="submit" class="btn btn-outline" name="action" value="save">조건 저장</button><button type="submit" class="btn btn-dark" name="action" value="review">조건 확인하기 ${icon('arrow', 18)}</button></div></form></div>
     <aside class="side-panel side-buy"><div class="side-icon">${icon('spark', 24)}</div><h3>내 조건에 집중해서 찾아요</h3><p>기기 종류와 예산을 우선 적용하고, 모델·용량·상태를 추가하면 후보를 더 좁힐 수 있어요.</p><div class="side-rule"></div><ul><li>${icon('check', 16)} 검색은 내가 확인한 뒤 실행돼요</li><li>${icon('check', 16)} 구매 조건은 공개되지 않아요</li><li>${icon('check', 16)} 정보가 부족한 매물은 따로 표시해요</li></ul></aside></div>
@@ -150,7 +166,7 @@ function results() {
   return `<main class="container page-main"><button class="back-link" data-nav="buy">← 조건 다시 설정하기</button><div class="page-intro"><span class="section-kicker">YOUR RESULTS</span><h1>찾으시는 기기, 여기 있어요</h1><p>조건에 맞는 후보 ${matches.length}개${needs.length ? `와 확인이 필요한 후보 ${needs.length}개` : ''}를 찾았습니다.</p></div>
     <div class="result-summary">${icon('shield', 21)} <span>확인되지 않은 정보는 조건 충족으로 판단하지 않아요.</span></div>
     <div class="section-heading compact"><div><h2>조건에 맞는 매물 <span>${matches.length}</span></h2></div></div>
-    ${matches.length ? `<div class="product-grid">${matches.map(x => card(x.listing, x)).join('')}</div>` : `<div class="empty-state">${icon('search', 28)}<h3>조건에 딱 맞는 매물이 없어요</h3><p>예산이나 모델 조건을 조정해 보세요.</p></div>`}
+    ${matches.length ? `<div class="product-grid">${matches.map(x => card(x.listing, x)).join('')}</div>` : `<div class="empty-state">${icon('search', 28)}<h3>조건에 딱 맞는 매물이 없어요</h3><p>조건을 조정하거나 검토한 조건을 “구해요”로 공개해 판매자의 제안을 받을 수 있어요.</p>${!isDemo && state.purchaseDraft?.status === 'CONFIRMED' ? `<button class="btn btn-dark" data-create-demand="${esc(state.purchaseDraft.id)}">구해요 초안 만들기</button>` : ''}</div>`}
     ${needs.length ? `<div class="section-heading compact needs-heading"><div><h2>확인이 필요한 매물 <span>${needs.length}</span></h2><p>정보가 부족해 판매자에게 확인이 필요한 후보예요.</p></div></div><div class="product-grid">${needs.map(x => card(x.listing, x)).join('')}</div>` : ''}</main>`;
 }
 
@@ -158,17 +174,17 @@ function detail() {
   const item = state.selected;
   if (!item) return browse();
   const result = state.results.find(x => x.listingId === item.id);
-  return `<main class="container detail-page"><button class="back-link" data-nav="${state.results.length ? 'results' : 'browse'}">← 목록으로 돌아가기</button><div class="detail-grid"><div class="detail-visual visual-${item.category.toLowerCase()}">${productArt(item)}</div>
+  return `<main class="container detail-page"><button class="back-link" data-back-list data-fallback="${state.results.length ? 'results' : 'browse'}">← 이전 목록으로 돌아가기</button><div class="detail-grid"><div class="detail-visual visual-${item.category.toLowerCase()}">${productArt(item)}</div>
     <div class="detail-copy"><div class="detail-kicker">${categories[item.category]} <span>·</span> ${esc(item.brand || '')}</div><h1>${esc(item.title)}</h1><div class="detail-price">${formatPrice(item.priceKrw)}</div><div class="detail-divider"></div>
     ${result ? `<div class="result-detail ${result.matchStatus === 'MATCH' ? 'matched' : 'needs'}"><strong>${result.matchStatus === 'MATCH' ? `${icon('check', 18)} 조건에 맞는 매물` : `${icon('alert', 18)} 확인이 필요한 매물`}</strong><p>${result.matchedFields?.length ? `충족: ${result.matchedFields.map(labelFor).map(esc).join(', ')}` : ''}</p>${result.missingFields?.length ? `<p>확인 필요: ${result.missingFields.map(labelFor).map(esc).join(', ')}</p>` : ''}</div>` : missingBox(item.missingFields)}
-    <div class="detail-table"><div><span>모델</span><strong>${esc(item.model || '확인 필요')}</strong></div><div><span>저장 용량</span><strong>${item.storageGb ? `${esc(item.storageGb)}GB` : '확인 필요'}</strong></div><div><span>제품 상태</span><strong>${conditions[item.condition] || '확인 필요'}</strong></div><div><span>구성품</span><strong>${esc(item.accessories || '확인 필요')}</strong></div></div><div class="detail-note">${icon('shield', 19)} 확인되지 않은 정보는 판매자에게 직접 확인해 주세요.</div></div></div>
+    <div class="detail-table"><div><span>모델</span><strong>${esc(item.model || '확인 필요')}</strong></div><div><span>저장 용량</span><strong>${item.storageGb ? `${esc(item.storageGb)}GB` : '확인 필요'}</strong></div><div><span>제품 상태</span><strong>${conditions[item.condition] || '확인 필요'}</strong></div><div><span>구성품</span><strong>${esc(item.accessories || '확인 필요')}</strong></div></div><div class="detail-note">${icon('shield', 19)} 확인되지 않은 정보는 판매자에게 직접 확인해 주세요.</div>${currentRole() === 'buyer' ? `<button class="btn btn-outline detail-action" data-nav="buy">내 조건으로 후보 비교하기 ${icon('arrow', 17)}</button>` : ''}</div></div>
     <section class="description-section"><h2>판매자의 설명</h2><p>${esc(item.description || '설명이 없습니다.')}</p></section></main>`;
 }
 
 function mine() {
   return `<main class="container page-main"><div class="page-intro"><span class="section-kicker">MY LISTINGS</span><h1>내 판매글</h1><p>내가 올린 매물과 저장한 초안을 확인하세요.</p></div>
     <div class="mine-head"><h2>게시된 매물 <span>${state.myListings.length}</span></h2><button class="btn btn-dark" data-new-listing>${icon('plus', 17)} 새 판매글</button></div>
-    ${state.myListings.length ? `<div class="my-list">${state.myListings.map(item => `<div class="my-row"><div class="my-art visual-${item.category.toLowerCase()}">${productArt(item)}</div><div><span class="status-pill ${item.status.toLowerCase()}">${item.status === 'ACTIVE' ? '검색 가능' : '비활성'}</span><h3>${esc(item.title)}</h3><p>${formatPrice(item.priceKrw)}</p></div><div class="my-actions"><button class="btn btn-outline" data-detail="${esc(item.id)}">상세 보기</button><button class="btn btn-outline" data-revise="${esc(item.id)}">수정 시작</button>${item.status === 'ACTIVE' ? `<button class="btn btn-outline" data-find-demand="${esc(item.id)}">맞는 구해요</button><button class="btn btn-plain" data-deactivate="${esc(item.id)}">비활성화</button>` : ''}</div></div>`).join('')}</div>` : `<div class="empty-state">${icon('bag', 28)}<h3>아직 게시된 판매글이 없어요</h3><p>기기를 등록해 첫 판매글을 만들어 보세요.</p></div>`}
+    ${state.myListings.length ? `<div class="my-list">${state.myListings.map(item => `<div class="my-row"><div class="my-art visual-${item.category.toLowerCase()}">${productArt(item)}</div><div><span class="status-pill ${item.status.toLowerCase()}">${item.status === 'ACTIVE' ? '검색 가능' : '비활성'}</span><h3>${esc(item.title)}</h3><p>${formatPrice(item.priceKrw)}</p></div><div class="my-actions"><button class="btn btn-outline" data-detail="${esc(item.id)}">상세 보기</button>${item.status === 'ACTIVE' ? `<button class="btn btn-outline" data-revise="${esc(item.id)}">수정 시작</button><button class="btn btn-outline" data-find-demand="${esc(item.id)}">맞는 구해요</button><button class="btn btn-plain" data-deactivate="${esc(item.id)}">비활성화</button>` : `<button class="btn btn-outline" data-reactivate="${esc(item.id)}">다시 활성화</button>`}</div></div>`).join('')}</div>` : `<div class="empty-state">${icon('bag', 28)}<h3>아직 게시된 판매글이 없어요</h3><p>기기를 등록해 첫 판매글을 만들어 보세요.</p></div>`}
     <div class="mine-head draft-head"><h2>저장한 초안 <span>${state.drafts.length}</span></h2></div>${state.drafts.length ? `<div class="draft-list">${state.drafts.map(d => `<button data-edit-draft="${esc(d.id)}"><div><span class="status-pill draft">${d.status === 'READY_FOR_REVIEW' ? 'Agent 초안 검토 필요' : '작성 중 · 보완 필요'}</span><h3>${esc(d.title || d.model || '제목 없는 초안')}</h3><p>${d.source === 'AGENT' ? 'Agent 초안' : '직접 작성'} · ${categories[d.category] || '종류 미정'}</p></div>${icon('chevron', 20)}</button>`).join('')}</div>` : `<p class="no-drafts">저장한 초안이 없습니다.</p>`}</main>`;
 }
 
@@ -179,7 +195,7 @@ const notificationLabel = { NEW_MATCH: '새 매칭 후보가 생겼어요', CONN
 
 function demandPage() {
   if (isDemo) return `<main class="container page-main"><div class="page-intro"><span class="section-kicker">PUBLIC DEMAND</span><h1>구해요·알림</h1><p>공개 수요와 연결 요청은 백엔드를 실행한 뒤 이용할 수 있어요.</p></div></main>`;
-  const selected = state.selectedDemand && state.publicDemands.find(item => item.id === state.selectedDemand.id);
+  const selected = state.selectedDemand && (state.demandFormDraft?.id === state.selectedDemand.id ? state.demandFormDraft : state.publicDemands.find(item => item.id === state.selectedDemand.id));
   const available = state.purchaseRequests.filter(item => item.status === 'CONFIRMED' && !state.publicDemands.some(d => d.purchaseRequestId === item.id));
   const connections = state.connections;
   return `<main class="container page-main"><div class="page-intro"><span class="section-kicker">PUBLIC DEMAND</span><h1>구해요·알림</h1><p>구매 조건은 기본적으로 비공개예요. 공개할 내용은 내가 검토하고 직접 승인합니다.</p></div>
@@ -221,24 +237,69 @@ function render() {
   attach();
 }
 
-function showError(error) { state.error = error.message || String(error); state.notice = ''; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function showError(error) { captureForms(); state.error = error.message || String(error); state.notice = ''; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 function getForm(form) {
   const raw = new FormData(form);
   return Object.fromEntries(raw.entries());
 }
+function captureForms() {
+  const sell = root.querySelector('#sell-form');
+  if (sell) {
+    const values = getForm(sell); delete values.photo; delete values.action;
+    state.listingDraft = { ...(state.listingDraft || {}), ...values };
+  }
+  const buy = root.querySelector('#buy-form');
+  if (buy) {
+    const values = getForm(buy); delete values.action;
+    state.purchaseDraft = { ...(state.purchaseDraft || {}), ...values,
+      conditionPreferences: [...buy.querySelectorAll('[name="conditionPreferences"]:checked')].map(item => item.value) };
+  }
+  const intent = root.querySelector('#intent-text');
+  if (intent) state.intentText = intent.value;
+  const demand = root.querySelector('#demand-form');
+  if (demand && state.selectedDemand) {
+    const values = getForm(demand); delete values.action;
+    state.demandFormDraft = { ...(state.demandFormDraft || state.selectedDemand), ...values,
+      conditionPreferences: [...demand.querySelectorAll('[name="conditionPreferences"]:checked')].map(item => item.value) };
+  }
+}
 function attach() {
   root.querySelectorAll('[data-switch-account]').forEach(button => button.addEventListener('click', async () => {
-    if (button.dataset.switchAccount === currentDemoAccount()) return;
-    try { switchDemoAccount(button.dataset.switchAccount); state.listingDraft = null; state.purchaseDraft = null; state.selectedDemand = null; state.issuedToken = null;
+    if (button.dataset.switchAccount === currentRole()) return;
+    try { captureForms(); state.accountDrafts[currentRole()] = { listingDraft: state.listingDraft, purchaseDraft: state.purchaseDraft,
+        intentText: state.intentText, demandFormDraft: state.demandFormDraft };
+      if (state.demoAuth) switchDemoAccount(button.dataset.switchAccount);
+      else { state.role = button.dataset.switchAccount; localStorage.setItem('agent-market-view-role', state.role); }
+      const saved = state.accountDrafts[currentRole()] || {};
+      state.listingDraft = saved.listingDraft || null; state.purchaseDraft = saved.purchaseDraft || null;
+      state.intentText = saved.intentText || ''; state.demandFormDraft = saved.demandFormDraft || null;
+      state.selectedDemand = null; state.issuedToken = null;
       state.sellerMatches = []; state.matchingListing = null; state.results = []; await refresh(); navigate('home');
-      state.notice = `${button.dataset.switchAccount === 'seller' ? '판매자' : '구매자'} 계정으로 전환했습니다.`; render(); }
+      state.notice = `${button.dataset.switchAccount === 'seller' ? '판매자' : '구매자'} 화면으로 전환했습니다. 작성 중인 내용은 유지됩니다.`; render(); }
     catch (error) { showError(error); }
   }));
-  root.querySelectorAll('[data-nav]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.nav)));
-  root.querySelectorAll('[data-new-listing]').forEach(button => button.addEventListener('click', () => navigate('sell', { listingDraft: null })));
+  root.querySelectorAll('[data-nav]').forEach(button => button.addEventListener('click', () => { captureForms(); navigate(button.dataset.nav); }));
+  root.querySelectorAll('[data-back-list]').forEach(button => button.addEventListener('click', () => {
+    if (history.state?.page === 'detail' && history.length > 1) history.back();
+    else navigate(button.dataset.fallback || 'browse');
+  }));
+  root.querySelectorAll('[data-new-listing]').forEach(button => button.addEventListener('click', () => { captureForms(); navigate('sell', { listingDraft: null }); }));
   root.querySelectorAll('[data-category]').forEach(button => button.addEventListener('click', () => { state.category = button.dataset.category; render(); }));
   root.querySelector('#browse-search')?.addEventListener('input', event => { const start = event.target.selectionStart; state.searchTerm = event.target.value; render(); const next = root.querySelector('#browse-search'); next.focus(); next.setSelectionRange(start, start); });
   root.querySelectorAll('[data-detail]').forEach(button => button.addEventListener('click', async () => { try { const selected = await api.getListing(button.dataset.detail); navigate('detail', { selected }); } catch (error) { showError(error); } }));
+  root.querySelector('#intent-form')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const naturalLanguageRequest = event.currentTarget.elements.naturalLanguageRequest.value.trim();
+    state.intentText = naturalLanguageRequest;
+    if (!naturalLanguageRequest) return showError(new Error('찾는 기기와 예산을 입력해 주세요.'));
+    try {
+      const id = state.purchaseDraft?.status === 'DRAFT' ? state.purchaseDraft.id : null;
+      const saved = await api.savePurchaseRequest({ ...(id ? { id } : {}), naturalLanguageRequest });
+      state.purchaseDraft = saved;
+      await refresh(); navigate('buy');
+      state.notice = '요청에서 확인된 조건을 채웠습니다. 부족한 내용은 직접 확인해 주세요.'; render();
+    } catch (error) { showError(error); }
+  });
   root.querySelector('#load-agent-listing')?.addEventListener('click', () => navigate('sell', { listingDraft: { source: 'AGENT', category: 'PHONE', brand: 'Apple', model: 'iPhone 15 Pro', storageGb: 256, condition: 'GOOD', title: 'iPhone 15 Pro 256GB 내추럴 티타늄', description: '사용감이 적고 정상 작동합니다. 정확한 배터리 상태는 확인이 필요합니다.', accessories: '박스, 충전 케이블', priceKrw: 890000, missingFields: ['batteryHealth'], nextQuestions: ['배터리 성능 수치를 확인할 수 있나요?'] } }));
   root.querySelector('#load-agent-request')?.addEventListener('click', () => navigate('buy', { purchaseDraft: { source: 'AGENT', category: 'TABLET', maxBudgetKrw: 1000000, modelQuery: '', storageGb: 128, conditionPreferences: [], missingFields: ['modelQuery'], nextQuestions: ['원하는 모델이나 모델군이 있나요?'] } }));
   root.querySelector('#sell-form')?.addEventListener('submit', async event => {
@@ -255,6 +316,7 @@ function attach() {
     const draft = { ...state.listingDraft, ...data, storageGb: data.storageGb ? Number(data.storageGb) : null,
       priceKrw: data.priceKrw ? Number(data.priceKrw) : null, images };
     delete draft.photo; delete draft.action;
+    state.listingDraft = draft;
     try { const saved = await api.saveListingDraft(draft); state.listingDraft = saved; await refresh(); navigate(action === 'save' ? 'mine' : 'review-listing', { listingDraft: saved }); if (action === 'save') { state.notice = '판매 초안을 저장했습니다.'; render(); } }
     catch (error) { showError(error); }
   });
@@ -265,6 +327,7 @@ function attach() {
       storageGb: data.storageGb ? Number(data.storageGb) : null,
       conditionPreferences: [...event.currentTarget.querySelectorAll('[name="conditionPreferences"]:checked')].map(x => x.value) };
     delete draft.action;
+    state.purchaseDraft = draft;
     try { const saved = await api.savePurchaseRequest(draft); state.purchaseDraft = saved; await refresh(); navigate(action === 'save' ? 'buy' : 'review-request', { purchaseDraft: saved }); if (action === 'save') { state.notice = '구매 조건을 저장했습니다.'; render(); } }
     catch (error) { showError(error); }
   });
@@ -273,8 +336,9 @@ function attach() {
   root.querySelectorAll('[data-edit-request]').forEach(button => button.addEventListener('click', () => { const draft = state.purchaseRequests.find(item => item.id === button.dataset.editRequest); navigate('buy', { purchaseDraft: draft }); }));
   root.querySelectorAll('[data-revise]').forEach(button => button.addEventListener('click', async () => { try { const draft = await api.startListingRevision(button.dataset.revise); await refresh(); navigate('sell', { listingDraft: draft }); } catch (error) { showError(error); } }));
   root.querySelectorAll('[data-deactivate]').forEach(button => button.addEventListener('click', async () => { if (!confirm('이 매물을 검색에서 제외할까요?')) return; try { await api.deactivateListing(button.dataset.deactivate); await refresh(); state.notice = '매물을 비활성화했습니다.'; render(); } catch (error) { showError(error); } }));
+  root.querySelectorAll('[data-reactivate]').forEach(button => button.addEventListener('click', async () => { if (!confirm('이 매물을 다시 검색에 노출할까요?')) return; try { await api.reactivateListing(button.dataset.reactivate); await refresh(); state.notice = '매물을 다시 활성화했습니다.'; render(); } catch (error) { showError(error); } }));
   root.querySelectorAll('[data-create-demand]').forEach(button => button.addEventListener('click', async () => { try { const demand = await api.createPublicDemandDraft(button.dataset.createDemand); await refresh(); navigate('demand', { selectedDemand: demand }); } catch (error) { showError(error); } }));
-  root.querySelectorAll('[data-select-demand]').forEach(button => button.addEventListener('click', () => { state.selectedDemand = state.publicDemands.find(item => item.id === button.dataset.selectDemand); render(); root.querySelector('.demand-editor')?.scrollIntoView({ behavior: 'smooth' }); }));
+  root.querySelectorAll('[data-select-demand]').forEach(button => button.addEventListener('click', () => { state.selectedDemand = state.publicDemands.find(item => item.id === button.dataset.selectDemand); if (state.demandFormDraft?.id !== state.selectedDemand?.id) state.demandFormDraft = null; render(); root.querySelector('.demand-editor')?.scrollIntoView({ behavior: 'smooth' }); }));
   root.querySelector('#demand-form')?.addEventListener('submit', async event => {
     event.preventDefault();
     const data = getForm(event.currentTarget);
@@ -287,7 +351,7 @@ function attach() {
     try {
       let selectedDemand = await api.updatePublicDemand(state.selectedDemand.id, changes);
       if (event.submitter?.value === 'publish') selectedDemand = await api.changePublicDemandStatus(selectedDemand.id, 'publish');
-      await refresh(); state.selectedDemand = selectedDemand;
+      await refresh(); state.selectedDemand = selectedDemand; state.demandFormDraft = null;
       state.notice = event.submitter?.value === 'publish' ? '구매 수요를 공개했습니다.' : '공개 내용을 저장했습니다.'; render();
     }
     catch (error) { showError(error); }
@@ -339,5 +403,16 @@ async function refresh() {
   ]);
 }
 
-try { state.demoAuth = (await api.authMode()) === 'demo'; await refresh(); state.page = ({ '#browse': 'browse', '#sell': 'sell', '#buy': 'buy', '#mine': 'mine', '#demand': 'demand', '#agent': 'agent' })[location.hash] || 'home'; render(); }
+try {
+  state.demoAuth = (await api.authMode()) === 'demo';
+  state.role = localStorage.getItem('agent-market-view-role') === 'seller' ? 'seller' : 'buyer';
+  await refresh();
+  state.page = ({ '#browse': 'browse', '#sell': 'sell', '#buy': 'buy', '#mine': 'mine', '#demand': 'demand', '#agent': 'agent' })[location.hash] || 'home';
+  history.replaceState({ page: state.page, scrollY: window.scrollY }, '', location.href);
+  window.addEventListener('popstate', event => {
+    captureForms(); state.page = event.state?.page || 'home'; state.error = ''; state.notice = '';
+    render(); requestAnimationFrame(() => window.scrollTo({ top: event.state?.scrollY || 0, behavior: 'instant' }));
+  });
+  render();
+}
 catch (error) { state.error = `매물을 불러오지 못했습니다. ${error.message}`; render(); }

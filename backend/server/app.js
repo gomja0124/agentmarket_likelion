@@ -111,6 +111,7 @@ function failedActionFor(path) {
   if (path === '/api/listing-drafts') return ['CREATE_LISTING_DRAFT', 'ListingDraft'];
   if (path.startsWith('/api/listing-drafts/')) return ['UPDATE_LISTING_DRAFT', 'ListingDraft'];
   if (path.endsWith('/deactivate')) return ['DEACTIVATE_LISTING', 'Listing'];
+  if (path.endsWith('/reactivate')) return ['REACTIVATE_LISTING', 'Listing'];
   if (path === '/api/purchase-requests') return ['CREATE_PURCHASE_REQUEST_DRAFT', 'PurchaseRequest'];
   if (path.endsWith('/confirm')) return ['CONFIRM_PURCHASE_REQUEST', 'PurchaseRequest'];
   if (path.endsWith('/search')) return ['SEARCH_LISTINGS', 'PurchaseRequest'];
@@ -289,6 +290,22 @@ export function createApiServer({
         }, () => store.deactivateListing(listing.id, now()));
         send(response, 200, updated); return;
       }
+      if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'listings' && segments[3] === 'reactivate') {
+        humanOnly(context, '매물을 다시 활성화');
+        const listing = store.getListing(segments[2]);
+        if (!listing) throw notFound('매물을 찾을 수 없습니다.');
+        requireOwner(listing.sellerId, context);
+        if (listing.status !== 'INACTIVE') throw invalidState('비활성 매물만 다시 활성화할 수 있습니다.');
+        const updated = runCommand(store, context, request, body, {
+          actionType: 'REACTIVATE_LISTING', targetType: 'Listing', targetId: listing.id, operation: path,
+        }, () => {
+          const value = store.reactivateListing(listing.id, now());
+          store.expirePublicDemands(now());
+          store.notifyMatchesForListing(value, now());
+          return value;
+        });
+        send(response, 200, updated); return;
+      }
 
       if (method === 'POST' && segments.join('/') === 'api/purchase-requests') {
         const purchaseRequest = runCommand(store, context, request, body, {
@@ -400,8 +417,8 @@ export function createApiServer({
         if (action === 'publish' && store.getPurchaseRequest(demand.purchaseRequestId)?.status !== 'CONFIRMED') {
           throw invalidState('구매 조건을 다시 확정한 뒤 공개해 주세요.');
         }
-        if (['publish', 'resume'].includes(action) && demand.expiresAt && demand.expiresAt <= now()) {
-          throw validationError('만료일을 미래로 변경해 주세요.', { field: 'expiresAt' });
+        if (['publish', 'resume'].includes(action) && demand.expiresAt && Date.parse(demand.expiresAt) < Date.parse(now()) + 86_400_000) {
+          throw validationError('공개 종료일을 최소 24시간 뒤로 변경해 주세요.', { field: 'expiresAt' });
         }
         const updated = store.transaction(() => {
           const value = store.savePublicDemand({ ...demand, status: transition[1], updatedAt: now() });

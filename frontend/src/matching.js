@@ -1,3 +1,5 @@
+import { matchesModel } from './model-search.js';
+
 export function matchListings(listings, request) {
   return listings.filter(item => item.status === 'ACTIVE').map(item => {
     const matchedFields = [];
@@ -9,7 +11,7 @@ export function matchListings(listings, request) {
     else matchedFields.push('maxBudgetKrw');
     if (request.modelQuery?.trim()) {
       if (!item.model) missingFields.push('model');
-      else if (!item.model.toLowerCase().includes(request.modelQuery.trim().toLowerCase())) unmetFields.push('model');
+      else if (!matchesModel(item.model, request.modelQuery)) unmetFields.push('model');
       else matchedFields.push('model');
     }
     if (request.storageGb) {

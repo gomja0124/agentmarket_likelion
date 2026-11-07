@@ -53,7 +53,9 @@ export function patchDemand(demand, patch, now = new Date().toISOString()) {
   if (next.minBudgetKrw != null && next.minBudgetKrw > next.maxBudgetKrw) {
     throw validationError('최소 예산은 최대 예산보다 클 수 없습니다.', { field: 'minBudgetKrw' });
   }
-  if (next.expiresAt && next.expiresAt <= now) throw validationError('만료일은 미래여야 합니다.', { field: 'expiresAt' });
+  if (Object.hasOwn(patch, 'expiresAt') && next.expiresAt && Date.parse(next.expiresAt) < Date.parse(now) + 86_400_000) {
+    throw validationError('공개 종료일은 최소 24시간 뒤여야 합니다.', { field: 'expiresAt' });
+  }
   const publicText = `${next.title} ${next.description || ''}`;
   if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(publicText) ||
       /(?:^|\D)0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)/.test(publicText)) {

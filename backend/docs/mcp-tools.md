@@ -142,7 +142,7 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 | `list_my_listings` | 내 매물 (ACTIVE/INACTIVE) |
 | `list_my_purchase_requests` | 내 구매 조건 + `nextAction` |
 
-tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성화(`deactivate`), 토큰 발급·폐기. 서버도 Agent면 403으로 거부한다. Step 2 tool(`public_demand`, `browse_buyer_demand`, `watch_listings`, `notify_match`)은 없다.
+tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성화(`deactivate`), 재활성화(`reactivate`), 토큰 발급·폐기. 서버도 Agent면 403으로 거부한다. Step 2 조회·초안 도구는 아래 플래그를 켠 경우에만 제공한다.
 
 ## 승인 지점 (스펙 3절)
 
@@ -195,6 +195,8 @@ Web의 **Agent 연결** 화면에서 토큰 이름·기간·권한을 선택해 
 ## Step 2 선택 도구
 
 MCP 서버를 `AGENT_MARKET_ENABLE_STEP2=1`로 실행하면 `list_my_public_demands`, `create_public_demand_draft`, `update_public_demand_draft`, `browse_matching_public_demands`, `list_my_notifications`가 추가된다. 초안 쓰기는 `purchase:write`, 탐색·알림은 `read` 권한이 필요하다. 공개 수요 게시, 연결 요청 전송, 구매자 수락·거절 도구는 제공하지 않는다. 해당 버튼은 Web에서 사람이 직접 누른다. 상세 흐름은 [Step 2 API 문서](step2-api.md)를 참고한다.
+
+Docker Compose에서는 `.env`의 `AGENT_MARKET_ENABLE_STEP2=1`을 설정해야 이 도구들이 열린다. 기본값은 `0`이다.
 
 
 ## 구매 기능 통합 계약

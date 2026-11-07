@@ -25,6 +25,11 @@ test('Step 2 keeps demand private until buyer approval, then permits only matche
       condition: 'GOOD', title: 'iPad Air 5 256GB',
     })).value;
     const listing = (await call(`/api/listing-drafts/${draft.id}/publish`, seller, 'POST')).value;
+    assert.equal((await call(`/api/listings/${listing.id}/deactivate`, outsider, 'POST')).status, 403);
+    assert.equal((await call(`/api/listings/${listing.id}/deactivate`, seller, 'POST')).value.status, 'INACTIVE');
+    assert.equal((await call(`/api/listings/${listing.id}/reactivate`, seller, 'POST', {}, 'AGENT')).status, 403);
+    assert.equal((await call(`/api/listings/${listing.id}/reactivate`, outsider, 'POST')).status, 403);
+    assert.equal((await call(`/api/listings/${listing.id}/reactivate`, seller, 'POST')).value.status, 'ACTIVE');
     const purchase = (await call('/api/purchase-requests', buyer, 'POST', {
       category: 'TABLET', modelQuery: 'iPad Air', maxBudgetKrw: 600000,
       storageGb: 128, conditionPreferences: ['GOOD'],
@@ -34,6 +39,12 @@ test('Step 2 keeps demand private until buyer approval, then permits only matche
     await call(`/api/purchase-requests/${purchase.id}/confirm`, buyer, 'POST');
     const demand = (await call(`/api/purchase-requests/${purchase.id}/public-demand`, buyer, 'POST', {})).value;
     assert.equal(demand.status, 'DRAFT');
+    assert.equal((await call(`/api/public-demands/${demand.id}`, buyer, 'PATCH', {
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    })).status, 422, '종료일이 한 시간 뒤면 공개할 시간을 충분히 보장하지 못한다');
+    assert.equal((await call(`/api/public-demands/${demand.id}`, buyer, 'PATCH', {
+      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    })).status, 200);
     assert.equal((await call(`/api/public-demands/${demand.id}`, seller)).status, 404);
     assert.deepEqual((await call(`/api/listings/${listing.id}/public-demands`, seller)).value, []);
     assert.equal((await call(`/api/public-demands/${demand.id}/publish`, buyer, 'POST', {}, 'AGENT')).status, 403);

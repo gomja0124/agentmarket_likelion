@@ -10,6 +10,7 @@ const accountKey = 'agent-market-demo-account';
 export const demoAccounts = { buyer: demoUser, seller: seedSeller };
 export const currentDemoAccount = () => globalThis.localStorage?.getItem?.(accountKey) === seedSeller ? 'seller' : 'buyer';
 export const switchDemoAccount = account => localStorage.setItem(accountKey, demoAccounts[account] || demoUser);
+const activeDemoUser = () => demoAccounts[currentDemoAccount()];
 const initialState = () => ({ listings: seedListings, drafts: [], requests: [] });
 const read = () => {
   try { return JSON.parse(localStorage.getItem(key)) || initialState(); }
@@ -42,18 +43,18 @@ export const api = {
     return isDemo ? read().listings.find(item => item.id === listingId) : request(`/api/listings/${encodeURIComponent(listingId)}`);
   },
   async listMyListings() {
-    return isDemo ? read().listings.filter(item => item.sellerId === demoUser) : request('/api/listings/mine');
+    return isDemo ? read().listings.filter(item => item.sellerId === activeDemoUser()) : request('/api/listings/mine');
   },
   async listMyDrafts() {
-    return isDemo ? read().drafts : request('/api/listing-drafts/mine');
+    return isDemo ? read().drafts.filter(item => item.sellerId === activeDemoUser()) : request('/api/listing-drafts/mine');
   },
   async listMyPurchaseRequests() {
-    return isDemo ? read().requests : request('/api/purchase-requests/mine');
+    return isDemo ? read().requests.filter(item => item.buyerId === activeDemoUser()) : request('/api/purchase-requests/mine');
   },
   async startListingRevision(listingId) {
     if (!isDemo) return request(`/api/listings/${encodeURIComponent(listingId)}/drafts`, { method: 'POST' });
     const state = read();
-    const listing = state.listings.find(item => item.id === listingId && item.sellerId === demoUser);
+    const listing = state.listings.find(item => item.id === listingId && item.sellerId === activeDemoUser());
     if (!listing) throw new Error('내 판매글만 수정할 수 있습니다.');
     const now = new Date().toISOString();
     const draft = { ...listing, id: id(), sourceListingId: listing.id, source: 'HUMAN',
@@ -65,9 +66,10 @@ export const api = {
       ? request(`/api/listing-drafts/${draft.id}`, { method: 'PATCH', body: draft })
       : request('/api/listing-drafts', { method: 'POST', body: draft });
     const state = read();
+    if (draft.id && !state.drafts.some(item => item.id === draft.id && item.sellerId === activeDemoUser())) throw new Error('내 판매 초안만 수정할 수 있습니다.');
     const now = new Date().toISOString();
     const missingFields = unresolvedFields(draft, listingMissing);
-    const saved = { ...draft, id: draft.id || id(), sellerId: demoUser, source: draft.source || 'HUMAN',
+    const saved = { ...draft, id: draft.id || id(), sellerId: activeDemoUser(), source: draft.source || 'HUMAN',
       status: listingMissing(draft).length ? 'DRAFT' : 'READY_FOR_REVIEW', missingFields,
       nextQuestions: missingFields.length ? draft.nextQuestions || [] : [],
       createdAt: draft.createdAt || now, updatedAt: now };
@@ -79,7 +81,7 @@ export const api = {
   async publishListing(draftId) {
     if (!isDemo) return request(`/api/listing-drafts/${draftId}/publish`, { method: 'POST' });
     const state = read();
-    const draft = state.drafts.find(item => item.id === draftId);
+    const draft = state.drafts.find(item => item.id === draftId && item.sellerId === activeDemoUser());
     if (!draft) throw new Error('판매 초안을 찾을 수 없습니다.');
     if (listingMissing(draft).length) throw new Error('필수 정보를 입력한 뒤 게시해 주세요.');
     const now = new Date().toISOString();
@@ -96,17 +98,26 @@ export const api = {
     if (!isDemo) return request(`/api/listings/${listingId}/deactivate`, { method: 'POST' });
     const state = read();
     const listing = state.listings.find(item => item.id === listingId);
-    if (!listing || listing.sellerId !== demoUser) throw new Error('내 판매글만 비활성화할 수 있습니다.');
+    if (!listing || listing.sellerId !== activeDemoUser()) throw new Error('내 판매글만 비활성화할 수 있습니다.');
     listing.status = 'INACTIVE'; listing.updatedAt = new Date().toISOString(); write(state); return listing;
+  },
+  async reactivateListing(listingId) {
+    if (!isDemo) return request(`/api/listings/${encodeURIComponent(listingId)}/reactivate`, { method: 'POST' });
+    const state = read();
+    const listing = state.listings.find(item => item.id === listingId);
+    if (!listing || listing.sellerId !== activeDemoUser()) throw new Error('내 판매글만 다시 활성화할 수 있습니다.');
+    if (listing.status !== 'INACTIVE') throw new Error('비활성 매물만 다시 활성화할 수 있습니다.');
+    listing.status = 'ACTIVE'; listing.updatedAt = new Date().toISOString(); write(state); return listing;
   },
   async savePurchaseRequest(value) {
     if (!isDemo) return value.id
       ? request(`/api/purchase-requests/${value.id}`, { method: 'PATCH', body: value })
       : request('/api/purchase-requests', { method: 'POST', body: value });
     const state = read();
+    if (value.id && !state.requests.some(item => item.id === value.id && item.buyerId === activeDemoUser())) throw new Error('내 구매 조건만 수정할 수 있습니다.');
     const now = new Date().toISOString();
     const missingFields = unresolvedFields(value, requestMissing);
-    const saved = { ...value, id: value.id || id(), buyerId: demoUser, source: value.source || 'HUMAN',
+    const saved = { ...value, id: value.id || id(), buyerId: activeDemoUser(), source: value.source || 'HUMAN',
       status: 'DRAFT', missingFields, nextQuestions: missingFields.length ? value.nextQuestions || [] : [],
       createdAt: value.createdAt || now, updatedAt: now };
     const index = state.requests.findIndex(item => item.id === saved.id);
@@ -116,7 +127,7 @@ export const api = {
   async confirmPurchaseRequest(requestId) {
     if (!isDemo) return request(`/api/purchase-requests/${requestId}/confirm`, { method: 'POST' });
     const state = read();
-    const item = state.requests.find(value => value.id === requestId);
+    const item = state.requests.find(value => value.id === requestId && value.buyerId === activeDemoUser());
     if (!item) throw new Error('구매 조건을 찾을 수 없습니다.');
     if (requestMissing(item).length) throw new Error('기기 종류와 최대 예산을 입력해 주세요.');
     item.status = 'CONFIRMED'; item.updatedAt = new Date().toISOString(); write(state); return item;
@@ -129,7 +140,7 @@ export const api = {
       })));
     }
     const state = read();
-    const item = state.requests.find(value => value.id === requestId);
+    const item = state.requests.find(value => value.id === requestId && value.buyerId === activeDemoUser());
     if (item?.status !== 'CONFIRMED') throw new Error('구매자가 조건을 확인한 뒤 검색할 수 있습니다.');
     return matchListings(state.listings, item);
   },

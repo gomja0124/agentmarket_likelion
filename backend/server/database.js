@@ -231,6 +231,11 @@ export class Store {
     return this.getListing(listingId);
   }
 
+  reactivateListing(listingId, now) {
+    this.db.prepare("UPDATE listings SET status='ACTIVE', updated_at=? WHERE id=?").run(now, listingId);
+    return this.getListing(listingId);
+  }
+
   savePurchaseRequest(request) {
     const values = [request.id, request.buyerId, request.source, request.category, request.modelQuery,
       request.maxBudgetKrw, request.storageGb, json(request.conditionPreferences), json(request.missingFields),

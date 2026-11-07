@@ -19,7 +19,7 @@ The proposal describes PostgreSQL for the eventual service. This thin demo uses 
 
 For local UI/API integration, requests default to demo user `00000000-0000-4000-8000-000000000001` and a human actor. Demo-mode `X-User-Id` and `X-Actor-Type` headers are **not authentication**. Agent bearer tokens are validated with scopes, expiry and revocation. In `strict` mode, human requests require a server-held `X-Web-Secret`; the static Web frontend cannot hold that secret and still needs a login/session relay before public deployment.
 
-An Agent may create/update drafts and request search for a purchase request already confirmed by its owner. Only the human owner can publish a listing, confirm a purchase request, or deactivate a listing. A confirmed request is the human authorization prerequisite for later Agent search calls.
+An Agent may create/update drafts and request search for a purchase request already confirmed by its owner. Only the human owner can publish, deactivate or reactivate a listing and confirm a purchase request. A confirmed request is the human authorization prerequisite for later Agent search calls.
 
 ## Routes
 
@@ -36,6 +36,7 @@ An Agent may create/update drafts and request search for a purchase request alre
 | `POST /api/listing-drafts/:id/publish` | Human approval; creates an ACTIVE listing snapshot | `Listing` |
 | `POST /api/listings/:id/drafts` | Start a new draft from an owned active listing | `ListingDraft` |
 | `POST /api/listings/:id/deactivate` | Human owner deactivates a listing | `Listing` |
+| `POST /api/listings/:id/reactivate` | Human owner reactivates an inactive listing | `Listing` |
 | `GET /api/purchase-requests/:id` | Owner-only draft/confirmed request and review guidance | `PurchaseRequestResponse` |
 | `GET /api/purchase-requests/mine` | Current user's private requests | `PurchaseRequest[]` |
 | `POST /api/purchase-requests` | Create a private draft | `PurchaseRequest` |
