@@ -133,3 +133,36 @@ test('route to scope mapping', () => {
   assert.equal(requiredScope('POST', '/api/purchase-requests/abc/search'), 'search');
   assert.equal(hashToken('a').length, 64);
 });
+
+test('agent cannot spoof draft/request source as HUMAN; source follows the authenticated actor', async () => {
+  await withApi(async base => {
+    const writer = (await call(base, '/api/agent-tokens', { method: 'POST', headers: human(), body: { name: 'w', scopes: ['listing:write', 'purchase:write'] } })).value.token;
+    const spoofed = await call(base, '/api/listing-drafts', { method: 'POST', headers: { ...bearer(writer), 'Idempotency-Key': 's1' }, body: { category: 'PHONE', model: 'iPhone 15', priceKrw: 100000, source: 'HUMAN' } });
+    assert.equal(spoofed.status, 201);
+    assert.equal(spoofed.value.source, 'AGENT', 'Agent 토큰으로 만든 초안은 본문과 무관하게 AGENT');
+
+    const headerAgent = await call(base, '/api/purchase-requests', { method: 'POST', headers: { 'X-User-Id': demoUser, 'X-Actor-Type': 'AGENT', 'Idempotency-Key': 's2' }, body: { category: 'PHONE', maxBudgetKrw: 1, source: 'HUMAN' } });
+    assert.equal(headerAgent.value.source, 'AGENT');
+
+    // 사람이 Agent 초안을 수정해도 처음 작성 주체(AGENT)는 유지된다 → Web의 "Agent 초안" 표시가 남는다.
+    const humanEdit = await call(base, `/api/listing-drafts/${spoofed.value.id}`, { method: 'PATCH', headers: human(), body: { priceKrw: 120000, source: 'HUMAN' } });
+    assert.equal(humanEdit.status, 200);
+    assert.equal(humanEdit.value.source, 'AGENT');
+
+    const humanDraft = await call(base, '/api/listing-drafts', { method: 'POST', headers: human(), body: { category: 'PHONE', model: 'x', priceKrw: 1, source: 'AGENT' } });
+    assert.equal(humanDraft.value.source, 'HUMAN', '사람이 만든 초안은 본문이 AGENT라고 해도 HUMAN');
+  });
+});
+
+test('oversized body gets a 413 JSON error instead of a dropped connection', async () => {
+  await withApi(async base => {
+    const big = { category: 'PHONE', model: 'x', priceKrw: 1, description: 'a'.repeat(2_000_000) };
+    const response = await fetch(`${base}/api/listing-drafts`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...human() }, body: JSON.stringify(big) });
+    assert.equal(response.status, 413);
+    const value = await response.json();
+    assert.equal(value.code, 'PAYLOAD_TOO_LARGE');
+    assert.equal(response.headers.get('connection'), 'close');
+    // 서버는 계속 살아 있다.
+    assert.equal((await call(base, '/api/health')).status, 200);
+  });
+});

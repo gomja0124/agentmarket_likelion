@@ -1,6 +1,6 @@
-# Agent Market — Step 1
+# Agent Market — Step 1 + Step 2 데모
 
-외부 Agent의 판매·구매 초안을 사람이 검토·승인하고, 자체 DB 매물을 검색하는 Web MVP입니다.
+외부 Agent의 판매·구매 초안을 사람이 검토·승인하고, 자체 DB 매물을 검색하는 Web MVP입니다. Step 2의 공개 구매 수요, 판매자 역방향 탐색, 사람 승인 연결 요청, 중복 방지 알림도 로컬 데모로 구현했습니다.
 
 ## 구조
 
@@ -42,11 +42,13 @@ npm test
 - [백엔드 실행·범위](backend/README.md)
 - [검색 실행·테스트·데모 가이드](backend/docs/search-runbook.md)
 - [백엔드 API 계약](backend/docs/backend-api.md)
+- [Step 2 API와 시연 순서](backend/docs/step2-api.md)
+- [구현 현황과 남은 작업](docs/IMPLEMENTATION_STATUS.md)
 - [공통 JSON Schema](backend/schemas/step1.schema.json)
 - [프론트엔드 실행·화면](frontend/README.md)
 - [프론트엔드 API](frontend/docs/frontend-api.md)
 
-Step 1은 핸드폰·태블릿, 초안과 사람 승인, 비공개 구매 조건, Rule-based Matching만 포함합니다.
+Step 1의 검색은 비공개 구매 조건만 사용합니다. Step 2는 별도 API와 데이터 테이블에서 공개 수요와 연결 요청을 처리합니다.
 
 
 ## MCP 서버
@@ -58,3 +60,5 @@ API 실행 후 `npm run start:mcp`로 stdio MCP, `npm run start:mcp:http`로
 
 로컬 Web은 demo 인증 모드로 실행합니다. strict 모드는 Web 서버 인증 중계가
 필요하며 공유 비밀을 브라우저 설정에 넣지 않습니다.
+
+Step 2 MCP 도구는 `AGENT_MARKET_ENABLE_STEP2=1`로 MCP 서버를 실행할 때만 추가됩니다. Agent는 공개 수요 **초안**과 탐색·알림 조회까지만 할 수 있고 공개·연결 요청·수락은 Web에서 사람이 직접 처리합니다.

@@ -1,10 +1,12 @@
 import { mkdirSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { DEMO_USER_ID, SEED_SELLER_ID, seedListings } from './seed.js';
+import { matchDemand } from './reverse-market.js';
 
-const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql']
+const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql', './migrations/003_reverse_market.sql']
   .map(file => fileURLToPath(new URL(file, import.meta.url)));
 const json = value => JSON.stringify(value ?? []);
 const parseJson = value => JSON.parse(value || '[]');
@@ -69,6 +71,38 @@ function requestFromRow(row) {
     nextQuestions: parseJson(row.next_questions_json), status: row.status,
     skippedQuestionFields: parseJson(row.skipped_question_fields_json),
     createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function demandFromRow(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id, buyerId: row.buyer_id, purchaseRequestId: row.purchase_request_id,
+    title: row.title, description: row.description, category: row.category,
+    modelQuery: row.model_query, storageGb: row.storage_gb,
+    conditionPreferences: parseJson(row.condition_preferences_json),
+    minBudgetKrw: row.min_budget_krw, maxBudgetKrw: row.max_budget_krw,
+    status: row.status, expiresAt: row.expires_at,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function connectionFromRow(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id, publicDemandId: row.public_demand_id, listingId: row.listing_id,
+    sellerId: row.seller_id, buyerId: row.buyer_id, status: row.status,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function notificationFromRow(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id, userId: row.user_id, type: row.type,
+    publicDemandId: row.public_demand_id, listingId: row.listing_id,
+    connectionRequestId: row.connection_request_id,
+    createdAt: row.created_at, readAt: row.read_at,
   };
 }
 
@@ -271,6 +305,97 @@ export class Store {
   getUser(id) {
     const row = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     return row ? { id: row.id, nickname: row.nickname, createdAt: row.created_at } : undefined;
+  }
+
+  getPublicDemand(id) { return demandFromRow(this.db.prepare('SELECT * FROM public_demands WHERE id = ?').get(id)); }
+  getPublicDemandByRequest(requestId) {
+    return demandFromRow(this.db.prepare('SELECT * FROM public_demands WHERE purchase_request_id = ?').get(requestId));
+  }
+  listPublicDemandsByBuyer(buyerId) {
+    return this.db.prepare('SELECT * FROM public_demands WHERE buyer_id = ? ORDER BY updated_at DESC, id')
+      .all(buyerId).map(demandFromRow);
+  }
+  listActivePublicDemands() {
+    return this.db.prepare("SELECT * FROM public_demands WHERE status = 'ACTIVE' ORDER BY updated_at DESC, id")
+      .all().map(demandFromRow);
+  }
+  savePublicDemand(demand) {
+    this.db.prepare(`INSERT INTO public_demands
+      (id, buyer_id, purchase_request_id, title, description, category, model_query, storage_gb,
+       condition_preferences_json, min_budget_krw, max_budget_krw, status, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET title=excluded.title, description=excluded.description,
+        model_query=excluded.model_query, storage_gb=excluded.storage_gb,
+        condition_preferences_json=excluded.condition_preferences_json,
+        min_budget_krw=excluded.min_budget_krw, max_budget_krw=excluded.max_budget_krw,
+        status=excluded.status, expires_at=excluded.expires_at, updated_at=excluded.updated_at`)
+      .run(demand.id, demand.buyerId, demand.purchaseRequestId, demand.title, demand.description,
+        demand.category, demand.modelQuery, demand.storageGb, json(demand.conditionPreferences),
+        demand.minBudgetKrw, demand.maxBudgetKrw, demand.status, demand.expiresAt,
+        demand.createdAt, demand.updatedAt);
+    return this.getPublicDemand(demand.id);
+  }
+  expirePublicDemands(now) {
+    this.db.prepare("UPDATE public_demands SET status = 'EXPIRED', updated_at = ? WHERE status IN ('ACTIVE', 'PAUSED') AND expires_at IS NOT NULL AND expires_at <= ?")
+      .run(now, now);
+  }
+  matchingDemandsForListing(listing) {
+    return this.listActivePublicDemands().filter(demand => demand.buyerId !== listing.sellerId).map(demand => ({
+      demand, match: matchDemand(listing, demand),
+    })).filter(item => item.match.matchStatus !== 'EXCLUDED');
+  }
+  addNotification({ userId, type, publicDemandId, listingId, connectionRequestId = null, now }) {
+    this.db.prepare(`INSERT OR IGNORE INTO notifications
+      (id, user_id, type, public_demand_id, listing_id, connection_request_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), userId, type, publicDemandId, listingId, connectionRequestId, now);
+  }
+  notifyMatchesForDemand(demand, now) {
+    if (demand.status !== 'ACTIVE') return;
+    for (const listing of this.activeListingsForSearch()) {
+      if (listing.sellerId === demand.buyerId) continue;
+      if (matchDemand(listing, demand).matchStatus !== 'MATCH') continue;
+      this.addNotification({ userId: demand.buyerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+      this.addNotification({ userId: listing.sellerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+    }
+  }
+  notifyMatchesForListing(listing, now) {
+    if (listing.status !== 'ACTIVE') return;
+    for (const { demand, match } of this.matchingDemandsForListing(listing)) {
+      if (match.matchStatus !== 'MATCH') continue;
+      this.addNotification({ userId: demand.buyerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+      this.addNotification({ userId: listing.sellerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+    }
+  }
+  getConnectionRequest(id) {
+    return connectionFromRow(this.db.prepare('SELECT * FROM connection_requests WHERE id = ?').get(id));
+  }
+  getConnectionForPair(publicDemandId, listingId) {
+    return connectionFromRow(this.db.prepare('SELECT * FROM connection_requests WHERE public_demand_id = ? AND listing_id = ?')
+      .get(publicDemandId, listingId));
+  }
+  createConnectionRequest({ id, demand, listing, now }) {
+    this.db.prepare(`INSERT INTO connection_requests
+      (id, public_demand_id, listing_id, seller_id, buyer_id, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)`)
+      .run(id, demand.id, listing.id, listing.sellerId, demand.buyerId, now, now);
+    return this.getConnectionRequest(id);
+  }
+  updateConnectionRequest(id, status, now) {
+    this.db.prepare('UPDATE connection_requests SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+    return this.getConnectionRequest(id);
+  }
+  listConnectionRequests(userId) {
+    return this.db.prepare('SELECT * FROM connection_requests WHERE buyer_id = ? OR seller_id = ? ORDER BY created_at DESC')
+      .all(userId, userId).map(connectionFromRow);
+  }
+  listNotifications(userId) {
+    return this.db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id LIMIT 100')
+      .all(userId).map(notificationFromRow);
+  }
+  markNotificationRead(id, userId, now) {
+    this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL').run(now, id, userId);
+    return notificationFromRow(this.db.prepare('SELECT * FROM notifications WHERE id = ? AND user_id = ?').get(id, userId));
   }
 
   close() { this.db.close(); }

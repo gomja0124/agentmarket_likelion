@@ -83,4 +83,11 @@ export class AgentMarketApi {
   createPurchaseRequest(fields, requestId) { return this.post('/api/purchase-requests', fields, requestId); }
   updatePurchaseRequest(id, fields, requestId) { return this.patch(`/api/purchase-requests/${encodeURIComponent(id)}`, fields, requestId); }
   search(purchaseRequestId, requestId) { return this.post(`/api/purchase-requests/${encodeURIComponent(purchaseRequestId)}/search`, {}, requestId); }
+  myPublicDemands() { return this.get('/api/public-demands/mine'); }
+  createPublicDemandDraft(purchaseRequestId, requestId) {
+    return this.post(`/api/purchase-requests/${encodeURIComponent(purchaseRequestId)}/public-demand`, {}, requestId);
+  }
+  updatePublicDemandDraft(id, patch, requestId) { return this.patch(`/api/public-demands/${encodeURIComponent(id)}`, patch, requestId); }
+  matchingPublicDemands(listingId) { return this.get(`/api/listings/${encodeURIComponent(listingId)}/public-demands`); }
+  myNotifications() { return this.get('/api/notifications/mine'); }
 }

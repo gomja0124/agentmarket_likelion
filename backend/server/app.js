@@ -4,6 +4,7 @@ import { Store } from './database.js';
 import { ApiError, forbidden, invalidState, notFound, validationError } from './errors.js';
 import { matchListings } from './matching.js';
 import { purchaseRequestResponse } from './purchase-api.js';
+import { demandFromRequest, matchDemand, patchDemand, publicDemandView } from './reverse-market.js';
 import { authConfigFromEnv, authenticate, issueToken, requireScope, requiredScope, SCOPES } from './auth.js';
 import {
   CATEGORIES, CONDITIONS, listingMissing, normalizeListingDraft,
@@ -13,17 +14,34 @@ import {
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const now = () => new Date().toISOString();
 
-function parseJsonBody(request) {
+const MAX_BODY_BYTES = 1_500_000;
+const MAX_DRAIN_BYTES = 8_000_000;
+
+/**
+ * 본문을 읽는다. 제한을 넘으면 413을 돌려줄 수 있도록 소켓을 바로 끊지 않고 남은 본문을 비운다.
+ * (끊어버리면 클라이언트는 413 대신 ECONNRESET을 본다.) 비정상적으로 큰 본문만 MAX_DRAIN_BYTES에서 끊는다.
+ */
+function parseJsonBody(request, response) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let received = 0;
+    let overflow = false;
     request.on('data', chunk => {
-      body += chunk;
-      if (body.length > 1_500_000) {
-        reject(new ApiError(413, 'PAYLOAD_TOO_LARGE', '요청 본문이 너무 큽니다.'));
-        request.destroy();
+      received += chunk.length;
+      if (overflow) {
+        if (received > MAX_DRAIN_BYTES) request.destroy(new ApiError(413, 'PAYLOAD_TOO_LARGE', '요청 본문이 너무 큽니다.'));
+        return;
       }
+      if (received > MAX_BODY_BYTES) {
+        overflow = true;
+        body = '';
+        response.setHeader('Connection', 'close');
+        return;
+      }
+      body += chunk;
     });
     request.on('end', () => {
+      if (overflow) return reject(new ApiError(413, 'PAYLOAD_TOO_LARGE', `요청 본문이 너무 큽니다. 최대 ${MAX_BODY_BYTES} bytes.`));
       if (!body) return resolve({});
       try { resolve(JSON.parse(body)); }
       catch { reject(new ApiError(400, 'INVALID_JSON', 'JSON 요청 본문을 확인해 주세요.')); }
@@ -43,6 +61,14 @@ function humanOnly(context, action) {
 
 function requireOwner(actualId, context, message = '본인 소유의 데이터만 사용할 수 있습니다.') {
   if (actualId !== context.userId) throw forbidden(message);
+}
+
+function connectionView(connection, userId) {
+  if (connection.buyerId !== userId) {
+    const { buyerId, ...safe } = connection;
+    return safe;
+  }
+  return connection;
 }
 
 function runCommand(store, context, request, body, { actionType, targetType, targetId, operation }, run) {
@@ -134,7 +160,7 @@ export function createApiServer({
 
       context = authenticate(request, store, auth, now());
       requireScope(context, requiredScope(method, path));
-      if (['POST', 'PATCH', 'PUT'].includes(method)) body = await parseJsonBody(request);
+      if (['POST', 'PATCH', 'PUT'].includes(method)) body = await parseJsonBody(request, response);
 
       if (method === 'GET' && segments.join('/') === 'api/me') {
         send(response, 200, {
@@ -222,7 +248,7 @@ export function createApiServer({
         const draft = runCommand(store, context, request, body, {
           actionType: 'CREATE_LISTING_DRAFT', targetType: 'ListingDraft', operation: path,
           targetId: result => result.id,
-        }, () => store.saveDraft(normalizeListingDraft({ ...source, ...body, source: context.actorType === 'AGENT' ? 'AGENT' : 'HUMAN', sourceListingId: source.id },
+        }, () => store.saveDraft(normalizeListingDraft({ ...source, ...body, sourceListingId: source.id },
           { userId: context.userId, actorType: context.actorType, now: now(), id: randomUUID() })));
         send(response, 201, draft); return;
       }
@@ -244,7 +270,12 @@ export function createApiServer({
         }
         const listing = runCommand(store, context, request, body, {
           actionType: 'PUBLISH_LISTING', targetType: 'Listing', targetId: () => null, operation: path,
-        }, () => store.publishDraft(draft, randomUUID(), now()));
+        }, () => {
+          const published = store.publishDraft(draft, randomUUID(), now());
+          store.expirePublicDemands(now());
+          store.notifyMatchesForListing(published, now());
+          return published;
+        });
         send(response, 201, listing); return;
       }
       if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'listings' && segments[3] === 'deactivate') {
@@ -307,6 +338,135 @@ export function createApiServer({
           return values;
         });
         send(response, 200, results); return;
+      }
+
+      // Step 2: private purchase conditions become public only after explicit human approval.
+      if (path.startsWith('/api/public-demands') || path.startsWith('/api/connection-requests') || path.startsWith('/api/notifications') || path.endsWith('/public-demand') || path.endsWith('/public-demands')) {
+        store.expirePublicDemands(now());
+      }
+      if (method === 'GET' && segments.join('/') === 'api/public-demands/mine') {
+        send(response, 200, store.listPublicDemandsByBuyer(context.userId)); return;
+      }
+      if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'purchase-requests' && segments[3] === 'public-demand') {
+        const purchaseRequest = store.getPurchaseRequest(segments[2]);
+        if (!purchaseRequest) throw notFound('구매 조건을 찾을 수 없습니다.');
+        requireOwner(purchaseRequest.buyerId, context);
+        if (purchaseRequest.status !== 'CONFIRMED') throw invalidState('확정된 구매 조건에서만 공개 수요 초안을 만들 수 있습니다.');
+        const demand = runCommand(store, context, request, body, {
+          actionType: 'CREATE_PUBLIC_DEMAND_DRAFT', targetType: 'PublicDemand', operation: path,
+          targetId: result => result.id,
+        }, () => {
+          if (store.getPublicDemandByRequest(purchaseRequest.id)) throw invalidState('이 구매 조건의 공개 수요 초안이 이미 있습니다.');
+          return store.savePublicDemand(demandFromRequest(purchaseRequest, randomUUID(), now()));
+        });
+        send(response, 201, demand); return;
+      }
+      if (method === 'GET' && segments.length === 3 && segments[0] === 'api' && segments[1] === 'public-demands') {
+        const demand = store.getPublicDemand(segments[2]);
+        const relevant = demand?.status === 'ACTIVE' && store.listListingsBySeller(context.userId)
+          .some(listing => listing.status === 'ACTIVE' && matchDemand(listing, demand).matchStatus !== 'EXCLUDED');
+        if (!demand || (demand.buyerId !== context.userId && !relevant)) throw notFound('공개 수요를 찾을 수 없습니다.');
+        send(response, 200, demand.buyerId === context.userId ? demand : publicDemandView(demand)); return;
+      }
+      if (method === 'PATCH' && segments.length === 3 && segments[0] === 'api' && segments[1] === 'public-demands') {
+        const demand = store.getPublicDemand(segments[2]);
+        if (!demand) throw notFound('공개 수요를 찾을 수 없습니다.');
+        requireOwner(demand.buyerId, context);
+        if (['CLOSED', 'EXPIRED'].includes(demand.status)) throw invalidState('종료되거나 만료된 수요는 수정할 수 없습니다.');
+        if (demand.status !== 'DRAFT') humanOnly(context, '공개 수요를 수정');
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw validationError('요청 본문은 JSON 객체여야 합니다.');
+        const { requestId, ...changes } = body;
+        const updated = runCommand(store, context, request, body, {
+          actionType: 'UPDATE_PUBLIC_DEMAND', targetType: 'PublicDemand', targetId: demand.id, operation: path,
+        }, () => {
+          const value = store.savePublicDemand(patchDemand(demand, changes, now()));
+          if (value.status === 'ACTIVE') store.notifyMatchesForDemand(value, now());
+          return value;
+        });
+        send(response, 200, updated); return;
+      }
+      if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'public-demands') {
+        humanOnly(context, '공개 수요 상태를 변경');
+        const demand = store.getPublicDemand(segments[2]);
+        if (!demand) throw notFound('공개 수요를 찾을 수 없습니다.');
+        requireOwner(demand.buyerId, context);
+        const action = segments[3];
+        const transitions = { publish: ['DRAFT', 'ACTIVE'], pause: ['ACTIVE', 'PAUSED'], resume: ['PAUSED', 'ACTIVE'], close: ['ACTIVE', 'CLOSED'] };
+        const transition = transitions[action];
+        if (!transition) throw notFound('요청한 API 경로를 찾을 수 없습니다.');
+        if (demand.status !== transition[0] && !(action === 'close' && demand.status === 'PAUSED')) {
+          throw invalidState('현재 공개 수요 상태에서 허용되지 않는 변경입니다.');
+        }
+        if (action === 'publish' && store.getPurchaseRequest(demand.purchaseRequestId)?.status !== 'CONFIRMED') {
+          throw invalidState('구매 조건을 다시 확정한 뒤 공개해 주세요.');
+        }
+        if (['publish', 'resume'].includes(action) && demand.expiresAt && demand.expiresAt <= now()) {
+          throw validationError('만료일을 미래로 변경해 주세요.', { field: 'expiresAt' });
+        }
+        const updated = store.transaction(() => {
+          const value = store.savePublicDemand({ ...demand, status: transition[1], updatedAt: now() });
+          if (value.status === 'ACTIVE') store.notifyMatchesForDemand(value, now());
+          return value;
+        });
+        send(response, 200, updated); return;
+      }
+      if (method === 'GET' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'listings' && segments[3] === 'public-demands') {
+        const listing = store.getListing(segments[2]);
+        if (!listing) throw notFound('매물을 찾을 수 없습니다.');
+        requireOwner(listing.sellerId, context);
+        if (listing.status !== 'ACTIVE') throw invalidState('활성 매물에서만 공개 수요를 탐색할 수 있습니다.');
+        send(response, 200, store.matchingDemandsForListing(listing).map(({ demand, match }) => ({
+          demand: publicDemandView(demand), ...match,
+        }))); return;
+      }
+      if (method === 'GET' && segments.join('/') === 'api/connection-requests/mine') {
+        send(response, 200, store.listConnectionRequests(context.userId).map(value => connectionView(value, context.userId))); return;
+      }
+      if (method === 'POST' && segments.join('/') === 'api/connection-requests') {
+        humanOnly(context, '연결을 요청');
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw validationError('요청 본문이 올바르지 않습니다.');
+        const { publicDemandId, listingId } = body;
+        const demand = store.getPublicDemand(publicDemandId);
+        const listing = store.getListing(listingId);
+        if (!demand || demand.status !== 'ACTIVE') throw notFound('활성 공개 수요를 찾을 수 없습니다.');
+        if (!listing) throw notFound('매물을 찾을 수 없습니다.');
+        requireOwner(listing.sellerId, context);
+        if (listing.status !== 'ACTIVE') throw invalidState('활성 매물만 연결 요청에 사용할 수 있습니다.');
+        if (demand.buyerId === context.userId) throw invalidState('본인의 수요에는 연결 요청할 수 없습니다.');
+        if (matchDemand(listing, demand).matchStatus !== 'MATCH') throw invalidState('조건이 충족된 매물만 연결 요청할 수 있습니다.');
+        if (store.getConnectionForPair(demand.id, listing.id)) throw invalidState('이미 연결 요청한 매물과 수요입니다.');
+        const connection = store.transaction(() => {
+          const value = store.createConnectionRequest({ id: randomUUID(), demand, listing, now: now() });
+          store.addNotification({ userId: demand.buyerId, type: 'CONNECTION_REQUEST', publicDemandId: demand.id,
+            listingId: listing.id, connectionRequestId: value.id, now: now() });
+          return value;
+        });
+        send(response, 201, connectionView(connection, context.userId)); return;
+      }
+      if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'connection-requests') {
+        humanOnly(context, '연결 요청을 처리');
+        const connection = store.getConnectionRequest(segments[2]);
+        if (!connection) throw notFound('연결 요청을 찾을 수 없습니다.');
+        requireOwner(connection.buyerId, context);
+        if (connection.status !== 'PENDING') throw invalidState('대기 중인 연결 요청만 처리할 수 있습니다.');
+        if (!['accept', 'decline'].includes(segments[3])) throw notFound('요청한 API 경로를 찾을 수 없습니다.');
+        const status = segments[3] === 'accept' ? 'ACCEPTED' : 'DECLINED';
+        const updated = store.transaction(() => {
+          const value = store.updateConnectionRequest(connection.id, status, now());
+          store.addNotification({ userId: connection.sellerId, type: status === 'ACCEPTED' ? 'CONNECTION_ACCEPTED' : 'CONNECTION_DECLINED',
+            publicDemandId: connection.publicDemandId, listingId: connection.listingId,
+            connectionRequestId: connection.id, now: now() });
+          return value;
+        });
+        send(response, 200, updated); return;
+      }
+      if (method === 'GET' && segments.join('/') === 'api/notifications/mine') {
+        send(response, 200, store.listNotifications(context.userId)); return;
+      }
+      if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'notifications' && segments[3] === 'read') {
+        const updated = store.markNotificationRead(segments[2], context.userId, now());
+        if (!updated) throw notFound('알림을 찾을 수 없습니다.');
+        send(response, 200, updated); return;
       }
 
       throw notFound('요청한 API 경로를 찾을 수 없습니다.');

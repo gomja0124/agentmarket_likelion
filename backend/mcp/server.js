@@ -54,7 +54,7 @@ export const MARKET_GUIDE = {
   scopeRule: '토큰에 없는 권한의 tool은 목록에 나타나지 않는다. 필요한 권한이 없으면 사용자에게 Web에서 권한을 추가한 토큰을 발급해 달라고 안내한다.',
 };
 
-function instructionsText() {
+function instructionsText(step2 = false) {
   return [
     MARKET_GUIDE.summary,
     '',
@@ -66,6 +66,7 @@ function instructionsText() {
     '',
     '값을 모르면 비워 두고 사용자에게 묻는다. 지어내지 않는다. ' + MARKET_GUIDE.retryRule,
     MARKET_GUIDE.scopeRule,
+    ...(step2 ? ['', 'Step 2: 공개 수요 초안 제안·수정, 내 매물에 맞는 공개 수요 탐색, 알림 조회를 할 수 있다. 공개 승인·연결 요청 전송·수락은 사람이 Web에서 직접 한다.'] : []),
   ].join('\n');
 }
 
@@ -221,9 +222,10 @@ function stripUndefined(object) {
  * @param webUrl     승인 안내에 넣을 Web 주소
  * @param scopes     이 연결의 권한. null이면 제한 없음(demo). 배열이면 해당 권한의 tool만 등록한다.
  */
-export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET_WEB_URL || '', scopes = null } = {}) {
+export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET_WEB_URL || '', scopes = null,
+  step2 = process.env.AGENT_MARKET_ENABLE_STEP2 === '1' } = {}) {
   if (!api) throw new Error('createAgentMarketServer에는 api가 필요합니다.');
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: instructionsText() });
+  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: instructionsText(step2) });
   const guard = fn => async args => { try { return ok(await fn(args)); } catch (error) { return fail(error); } };
   const has = scope => scopes == null || scopes.includes(scope);
   const register = (scope, name, config, handler) => { if (has(scope)) server.registerTool(name, config, guard(handler)); };
@@ -239,7 +241,10 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
     title: '마켓 이용 규칙',
     description: '가장 먼저 호출한다. Agent가 할 수 있는 일과 없는 일, 판매·구매 흐름, 승인 지점, 재시도 규칙을 돌려준다.',
     inputSchema: {},
-  }, async () => ({ ...MARKET_GUIDE, apiHealth: await api.health(), webUrl: webUrl || null }));
+  }, async () => ({ ...MARKET_GUIDE, step2Enabled: step2,
+    ...(step2 ? { step2AgentCan: ['공개 수요 비공개 초안 작성·수정', '내 매물에 맞는 공개 수요 탐색', '내 알림 조회'],
+      step2HumanOnly: ['구매 수요 공개', '판매자 연결 요청 전송', '구매자 연결 요청 수락·거절'] } : {}),
+    apiHealth: await api.health(), webUrl: webUrl || null }));
 
   register('read', 'browse_listings', {
     title: '공개 매물 둘러보기',
@@ -337,6 +342,50 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
     const results = await api.search(purchaseRequestId, requestId);
     return { purchaseRequestId, summary: summarizeSearch(results), results };
   });
+
+  // Step 2 tools are opt-in. Publishing, sending connection requests and accepting them remain Web-only.
+  if (step2) {
+    register('read', 'list_my_public_demands', {
+      title: '내 공개 구매 수요 목록',
+      description: '비공개 초안과 공개 상태를 확인한다. 다른 구매자의 비공개 조건은 볼 수 없다.',
+      inputSchema: {},
+    }, async () => ({ demands: await api.myPublicDemands() }));
+
+    register('purchase:write', 'create_public_demand_draft', {
+      title: '공개 구매 수요 초안 제안',
+      description: '사람이 확정한 구매 조건에서 비공개 초안을 만든다. 공개는 반드시 구매자가 Web에서 직접 승인한다.',
+      inputSchema: { purchaseRequestId: UUID, requestId: requestIdField },
+    }, async ({ purchaseRequestId, requestId }) => {
+      const demand = await api.createPublicDemandDraft(purchaseRequestId, requestId);
+      return { demand, humanApprovalRequired: true, nextAction: `Web ${webUrl}의 구해요·알림 화면에서 공개 내용을 검토하고 직접 승인하세요.` };
+    });
+
+    register('purchase:write', 'update_public_demand_draft', {
+      title: '공개 구매 수요 초안 수정',
+      description: '비공개 초안의 공개 필드만 수정한다. Agent는 공개 중인 수요를 수정하거나 공개할 수 없다.',
+      inputSchema: { demandId: UUID, patch: z.object({
+        title: z.string().min(1).max(200).optional(), description: z.string().max(2000).nullable().optional(),
+        modelQuery: z.string().max(200).nullable().optional(), storageGb: z.number().int().positive().nullable().optional(),
+        minBudgetKrw: z.number().int().positive().nullable().optional(), maxBudgetKrw: z.number().int().positive().optional(),
+        conditionPreferences: z.array(CONDITION).max(3).optional(), expiresAt: z.string().datetime().nullable().optional(),
+      }), requestId: requestIdField },
+    }, async ({ demandId, patch, requestId }) => {
+      const demand = await api.updatePublicDemandDraft(demandId, stripUndefined(patch), requestId);
+      return { demand, humanApprovalRequired: true, nextAction: `Web ${webUrl}에서 구매자가 직접 공개를 승인해야 합니다.` };
+    });
+
+    register('read', 'browse_matching_public_demands', {
+      title: '내 매물과 맞는 공개 수요 탐색',
+      description: '본인의 ACTIVE Listing에 맞는 공개 수요만 찾는다. 구매자의 연락처·정확한 위치는 제공하지 않는다.',
+      inputSchema: { listingId: UUID },
+    }, async ({ listingId }) => ({ listingId, matches: await api.matchingPublicDemands(listingId) }));
+
+    register('read', 'list_my_notifications', {
+      title: '내 매칭·연결 알림 조회',
+      description: '새 매칭과 연결 요청의 알림을 조회한다. 연결 요청 전송·수락은 사람이 Web에서 한다.',
+      inputSchema: {},
+    }, async () => ({ notifications: await api.myNotifications() }));
+  }
 
   return server;
 }

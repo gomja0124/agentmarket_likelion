@@ -188,15 +188,13 @@ node --test test/mcp-remote.test.js   # strict 백엔드 + 원격 MCP E2E, 폐�
 
 E2E는 인메모리 API를 띄우고 실제 MCP 프로세스/HTTP 서버를 SDK 클라이언트로 호출한다. Claude Desktop이나 원격 커넥터가 하는 것과 같은 경로이므로 이 테스트가 통과하면 실제 연결도 동작한다.
 
-## Web(프론트)에서 해야 할 것
+## Web 연결 화면
 
-- 설정 화면: 토큰 이름과 scope 체크박스 → `POST /api/agent-tokens` → 토큰 원문을 한 번 보여주고 복사 버튼
-- 토큰 목록: prefix, scope, 마지막 사용, 폐기 버튼 → `DELETE /api/agent-tokens/:id`
-- Web 서버는 API 호출 시 `X-Web-Secret` 헤더를 붙인다 (strict 모드)
+Web의 **Agent 연결** 화면에서 토큰 이름·기간·권한을 선택해 발급하고 원문을 한 번 복사할 수 있다. 토큰 목록과 폐기 버튼도 있다. 현재 정적 Web은 로컬 demo 인증 모드에서 동작한다. strict 모드에는 실제 로그인 세션을 확인하고 `X-Web-Secret`을 서버에서 붙이는 중계 계층이 아직 필요하다.
 
-## Step 2에서 추가될 것
+## Step 2 선택 도구
 
-공개 구매 수요 조회·응답, 신규 매물 감시 등록, 가격·시간 제안, 가예약, 사람 승인 요청 tool. 전부 같은 어댑터 패턴으로 추가하고 새 scope(`offer:write`, `hold:write`)를 붙인다.
+MCP 서버를 `AGENT_MARKET_ENABLE_STEP2=1`로 실행하면 `list_my_public_demands`, `create_public_demand_draft`, `update_public_demand_draft`, `browse_matching_public_demands`, `list_my_notifications`가 추가된다. 초안 쓰기는 `purchase:write`, 탐색·알림은 `read` 권한이 필요하다. 공개 수요 게시, 연결 요청 전송, 구매자 수락·거절 도구는 제공하지 않는다. 해당 버튼은 Web에서 사람이 직접 누른다. 상세 흐름은 [Step 2 API 문서](step2-api.md)를 참고한다.
 
 
 ## 구매 기능 통합 계약
@@ -212,8 +210,8 @@ MCP nextAction은 사람에게 전달할 안내 문자열이며 apiNextAction에
 구조화된 행동 객체가 포함됩니다. 검색은 Matching v2 결과를 그대로 반환합니다.
 읽기 결과는 실제 확인되지 않은 정보를 정상으로 설명해서는 안 됩니다.
 
-현재 Web은 정적 프론트엔드이고 토큰 발급 화면·로그인 중계 서버가 없습니다.
-로컬 통합에는 demo 모드를 사용하고, 토큰은 문서의 API로 발급합니다.
+현재 Web은 정적 프론트엔드이고 토큰 발급 화면은 있지만 로그인 중계 서버는 없습니다.
+로컬 통합에는 demo 모드를 사용합니다.
 strict는 X-Web-Secret을 보관하는 서버 중계 계층이 필요합니다. 공유 비밀을
 frontend/config.js나 브라우저 요청 코드에 넣지 마세요. Docker 설정은 API와
 MCP 서비스 구성이며 완전한 Web 로그인 배포를 제공하지 않습니다.
