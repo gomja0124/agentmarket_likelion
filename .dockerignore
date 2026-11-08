@@ -1,0 +1,12 @@
+.git
+.github
+.local
+.env
+**/.env
+**/node_modules
+**/.DS_Store
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+outputs
+docs

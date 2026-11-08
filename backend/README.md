@@ -13,7 +13,7 @@ node server/index.js
 
 서버는 `http://127.0.0.1:8080`에 열리고, `.local/agent-market.sqlite` 데이터베이스와 12개 활성 핸드폰·태블릿 시드 매물을 준비합니다. API 경로, 응답, 상태·권한 규칙은 [Backend API 계약](docs/backend-api.md)을 참고하세요. 공유 JSON Schema는 [`schemas/step1.schema.json`](schemas/step1.schema.json)에 있습니다.
 
-제안서의 최종 서비스 아키텍처는 PostgreSQL을 목표로 하지만, 초기 E2E를 바로 실행할 수 있도록 이번 프로토타입은 Node 내장 SQLite를 사용합니다. Step 2의 공개 수요·판매자 역방향 탐색·연결 요청·알림은 [별도 API 문서](docs/step2-api.md)를 참고하세요. Web 로그인·API 중계는 [가이드](docs/web-auth.md)에 있으며, 운영 DB와 백업·공개 배포 검증은 아직 남아 있습니다.
+제안서의 최종 서비스 아키텍처는 PostgreSQL을 목표로 하지만, 초기 E2E를 바로 실행할 수 있도록 이번 프로토타입은 Node 내장 SQLite를 사용합니다. Step 2의 공개 수요·판매자 역방향 탐색·연결 요청·알림은 [별도 API 문서](docs/step2-api.md)를 참고하세요. Web 로그인·API 중계는 [가이드](docs/web-auth.md), 단일 서비스 배포는 [배포 가이드](docs/deployment.md)에 있습니다. 공개 호스팅 계정·영속 볼륨 연결과 운영 백업 검증은 아직 남아 있습니다.
 
 ## 핵심 흐름
 

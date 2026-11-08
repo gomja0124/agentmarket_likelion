@@ -10,6 +10,7 @@
     "start:mcp": "node mcp/index.js",
     "start:mcp:http": "node mcp/http.js",
     "start:web": "node web/index.js",
+    "start:deployment": "node deploy/index.js",
     "test:mcp": "node --test test/mcp.test.js test/mcp-remote.test.js"
   },
   "engines": {

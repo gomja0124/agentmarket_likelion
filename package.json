@@ -13,6 +13,7 @@
     "start:mcp": "npm --prefix backend run start:mcp",
     "start:mcp:http": "npm --prefix backend run start:mcp:http",
     "start:web": "npm --prefix backend run start:web",
+    "start:deployment": "npm --prefix backend run start:deployment",
     "test:mcp": "npm --prefix backend run test:mcp"
   },
   "engines": {
