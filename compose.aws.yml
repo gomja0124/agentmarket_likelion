@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    environment:
+      PORT: "8080"
+      AGENT_MARKET_DB_PATH: /data/agent-market.sqlite
+      AGENT_MARKET_WEB_URL: https://${AGENT_MARKET_DOMAIN:?set AGENT_MARKET_DOMAIN in .env}
+      AGENT_MARKET_WEB_SECRET: ${AGENT_MARKET_WEB_SECRET:?set AGENT_MARKET_WEB_SECRET in .env}
+      AGENT_MARKET_ENABLE_STEP2: ${AGENT_MARKET_ENABLE_STEP2:-0}
+    volumes:
+      - market-data:/data
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      AGENT_MARKET_DOMAIN: ${AGENT_MARKET_DOMAIN:?set AGENT_MARKET_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.aws:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  market-data:
+  caddy-data:
+  caddy-config:

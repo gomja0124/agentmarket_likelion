@@ -16,3 +16,7 @@ jobs:
       - run: npm --prefix backend ci
       - run: npm test
       - run: docker build -t agent-market-deployment .
+      - run: docker compose -f compose.aws.yml config -q
+        env:
+          AGENT_MARKET_DOMAIN: market.example.com
+          AGENT_MARKET_WEB_SECRET: ci-only-secret-not-used-in-deployment
