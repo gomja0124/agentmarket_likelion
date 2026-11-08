@@ -1,0 +1,10 @@
+# AGENT_MARKET_DOMAIN 환경 변수에 실제 도메인을 설정한다.
+# DNS가 서버를 가리키고 80/443 포트가 열려 있어야 자동 HTTPS가 동작한다.
+{$AGENT_MARKET_DOMAIN} {
+  handle /mcp {
+    reverse_proxy 127.0.0.1:8090
+  }
+  handle {
+    reverse_proxy 127.0.0.1:4173
+  }
+}

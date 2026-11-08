@@ -190,7 +190,7 @@ E2E는 인메모리 API를 띄우고 실제 MCP 프로세스/HTTP 서버를 SDK 
 
 ## Web 연결 화면
 
-Web의 **Agent 연결** 화면에서 토큰 이름·기간·권한을 선택해 발급하고 원문을 한 번 복사할 수 있다. 토큰 목록과 폐기 버튼도 있다. 현재 정적 Web은 로컬 demo 인증 모드에서 동작한다. strict 모드에는 실제 로그인 세션을 확인하고 `X-Web-Secret`을 서버에서 붙이는 중계 계층이 아직 필요하다.
+Web의 **Agent 연결** 화면에서 토큰 이름·기간·권한을 선택해 발급하고 원문을 한 번 복사할 수 있다. 토큰 목록과 폐기 버튼도 있다. 정적 Web은 로컬 demo 인증 모드에서 동작한다. strict 모드에서는 `backend/web/` 서버가 로그인 세션을 확인하고 `X-Web-Secret`을 서버에서 붙인다.
 
 ## Step 2 선택 도구
 
@@ -212,8 +212,8 @@ MCP nextAction은 사람에게 전달할 안내 문자열이며 apiNextAction에
 구조화된 행동 객체가 포함됩니다. 검색은 Matching v2 결과를 그대로 반환합니다.
 읽기 결과는 실제 확인되지 않은 정보를 정상으로 설명해서는 안 됩니다.
 
-현재 Web은 정적 프론트엔드이고 토큰 발급 화면은 있지만 로그인 중계 서버는 없습니다.
-로컬 통합에는 demo 모드를 사용합니다.
-strict는 X-Web-Secret을 보관하는 서버 중계 계층이 필요합니다. 공유 비밀을
-frontend/config.js나 브라우저 요청 코드에 넣지 마세요. Docker 설정은 API와
-MCP 서비스 구성이며 완전한 Web 로그인 배포를 제공하지 않습니다.
+`backend/web/`에 로그인 세션과 strict API 중계 서버가 있습니다. Web과 API는
+같은 DB를 사용하며, Web 서버만 `X-Web-Secret`을 보관합니다. 로컬 정적 Web은
+기존 demo 모드로 실행할 수 있습니다. Docker 설정은 Web/API/MCP를 구성하지만,
+공개 HTTPS·운영 백업·외부 Agent 클라이언트 연결은 아직 검증되지 않았습니다.
+[Web 로그인 가이드](web-auth.md)를 참고하세요.

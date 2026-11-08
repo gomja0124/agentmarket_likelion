@@ -2,7 +2,9 @@ import { seedListings } from './data.js';
 import { listingMissing, matchListings, requestMissing, unresolvedFields } from './matching.js';
 
 const base = window.AGENT_MARKET_API_BASE || '';
-export const isDemo = !base;
+const webAuth = Boolean(window.AGENT_MARKET_WEB_AUTH);
+let csrfToken = '';
+export const isDemo = !base && !webAuth;
 const key = 'agent-market-step1-v2';
 const demoUser = '00000000-0000-4000-8000-000000000001';
 const seedSeller = '00000000-0000-4000-8000-000000000002';
@@ -20,19 +22,38 @@ const write = state => localStorage.setItem(key, JSON.stringify(state));
 const id = () => crypto.randomUUID();
 
 async function request(path, options = {}) {
+  const method = options.method || 'GET';
   const response = await fetch(`${base}${path}`, {
-    headers: { 'Content-Type': 'application/json', 'X-User-Id': demoAccounts[currentDemoAccount()] }, ...options,
+    ...options,
+    credentials: webAuth ? 'same-origin' : options.credentials,
+    headers: { 'Content-Type': 'application/json',
+      ...(webAuth ? (method === 'GET' ? {} : { 'X-CSRF-Token': csrfToken }) : { 'X-User-Id': demoAccounts[currentDemoAccount()] }),
+      ...options.headers },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   if (!response.ok) {
     let message = `요청에 실패했습니다 (${response.status}).`;
     try { message = (await response.json()).message || message; } catch { /* non-JSON error */ }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
 
 export const api = {
+  async webSession() {
+    if (!webAuth) return null;
+    const response = await fetch('/web/session', { credentials: 'same-origin' });
+    const session = await response.json();
+    csrfToken = session.authenticated ? session.csrfToken : '';
+    return session;
+  },
+  async logout() {
+    if (!webAuth) return;
+    await request('/web/logout', { method: 'POST' });
+    csrfToken = '';
+  },
   async authMode() {
     return isDemo ? 'local' : (await request('/api/health')).authMode;
   },

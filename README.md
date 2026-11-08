@@ -49,6 +49,7 @@ npm test
 - [공통 JSON Schema](backend/schemas/step1.schema.json)
 - [프론트엔드 실행·화면](frontend/README.md)
 - [프론트엔드 API](frontend/docs/frontend-api.md)
+- [Web 로그인·strict API 중계](backend/docs/web-auth.md)
 
 Step 1의 검색은 비공개 구매 조건만 사용합니다. Step 2는 별도 API와 데이터 테이블에서 공개 수요와 연결 요청을 처리합니다.
 
@@ -60,11 +61,10 @@ API 실행 후 `npm run start:mcp`로 stdio MCP, `npm run start:mcp:http`로
 두 전송 방식의 테스트를 실행합니다. 외부 Agent 설정과 토큰 발급은
 [MCP 연결 가이드](backend/docs/mcp-tools.md)를 참고하세요.
 
-로컬 Web은 demo 인증 모드로 실행합니다. strict 모드는 Web 서버 인증 중계가
-필요하며 공유 비밀을 브라우저 설정에 넣지 않습니다.
+정적 Web은 demo 인증 모드로 실행할 수 있습니다. strict 모드에서는 `npm run start:web`으로 로그인 Web을 띄웁니다. Web과 API는 같은 DB를 사용하며 공유 비밀은 Web 서버에만 둡니다. [설정 방법](backend/docs/web-auth.md)을 참고하세요.
 
 Step 2 MCP 도구는 `AGENT_MARKET_ENABLE_STEP2=1`로 MCP 서버를 실행할 때만 추가됩니다. Agent는 공개 수요 **초안**과 탐색·알림 조회까지만 할 수 있고 공개·연결 요청·수락은 Web에서 사람이 직접 처리합니다.
 
 ## 공개 배포 전 확인
 
-`backend/docker-compose.yml`은 strict 인증 API와 원격 MCP만 구성합니다. 실제 Web 로그인·세션·서버 측 API 중계, 운영 DB·백업, HTTPS 공개 도메인과 외부 Agent 앱 등록은 아직 연결되지 않았습니다. `X-Web-Secret`을 브라우저에 넣거나 demo 계정 헤더를 공개 서비스 인증으로 사용하지 마세요. Step 2 도구를 배포에서 사용할 때는 `backend/.env`의 `AGENT_MARKET_ENABLE_STEP2=1`을 설정합니다.
+`backend/docker-compose.yml`은 로그인 Web, strict 인증 API, 원격 MCP를 같은 호스트에 구성합니다. 계정은 관리자가 CLI로 발급하며 공개 회원가입은 아직 없습니다. 운영 DB·백업, HTTPS 공개 도메인과 외부 Agent 앱 등록은 아직 연결되지 않았습니다. `X-Web-Secret`을 브라우저에 넣거나 demo 계정 헤더를 공개 서비스 인증으로 사용하지 마세요. Step 2 도구를 배포에서 사용할 때는 `backend/.env`의 `AGENT_MARKET_ENABLE_STEP2=1`을 설정합니다.

@@ -7,7 +7,7 @@ const root = document.querySelector('#app');
 const state = { page: 'home', listings: [], myListings: [], drafts: [], purchaseRequests: [], results: [], selected: null,
   listingDraft: null, purchaseDraft: null, publicDemands: [], connections: [], notifications: [],
   selectedDemand: null, sellerMatches: [], matchingListing: null,
-  tokens: [], issuedToken: null, demoAuth: false,
+  tokens: [], issuedToken: null, demoAuth: false, webSession: null,
   searchTerm: '', category: 'ALL', notice: '', error: '', intentText: '',
   role: 'buyer', accountDrafts: {}, demandFormDraft: null };
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -59,7 +59,7 @@ function footer() {
 }
 function demoAccountBar() {
   const role = currentRole();
-  return `<div class="demo-account-bar"><div class="container"><span>${state.demoAuth ? '시연 계정' : '이용 화면'}</span><button data-switch-account="buyer" ${role === 'buyer' ? 'aria-current="true"' : ''}>구매자</button><button data-switch-account="seller" ${role === 'seller' ? 'aria-current="true"' : ''}>판매자</button><small>${state.demoAuth ? '판매자 계정에는 샘플 매물 12개가 있습니다.' : '화면만 전환되며 계정은 유지됩니다.'}</small></div></div>`;
+  return `<div class="demo-account-bar"><div class="container"><span>${state.demoAuth ? '시연 계정' : '이용 화면'}</span><button data-switch-account="buyer" ${role === 'buyer' ? 'aria-current="true"' : ''}>구매자</button><button data-switch-account="seller" ${role === 'seller' ? 'aria-current="true"' : ''}>판매자</button><small>${state.demoAuth ? '판매자 계정에는 샘플 매물 12개가 있습니다.' : '화면만 전환되며 계정은 유지됩니다.'}</small>${state.webSession ? `<span>${esc(state.webSession.nickname)}</span><button data-logout>로그아웃</button>` : ''}</div></div>`;
 }
 
 function card(item, result) {
@@ -237,7 +237,7 @@ function render() {
   attach();
 }
 
-function showError(error) { captureForms(); state.error = error.message || String(error); state.notice = ''; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function showError(error) { if (window.AGENT_MARKET_WEB_AUTH && error.status === 401) { location.replace('/login'); return; } captureForms(); state.error = error.message || String(error); state.notice = ''; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 function getForm(form) {
   const raw = new FormData(form);
   return Object.fromEntries(raw.entries());
@@ -264,6 +264,7 @@ function captureForms() {
   }
 }
 function attach() {
+  root.querySelector('[data-logout]')?.addEventListener('click', async () => { try { await api.logout(); location.assign('/login'); } catch (error) { showError(error); } });
   root.querySelectorAll('[data-switch-account]').forEach(button => button.addEventListener('click', async () => {
     if (button.dataset.switchAccount === currentRole()) return;
     try { captureForms(); state.accountDrafts[currentRole()] = { listingDraft: state.listingDraft, purchaseDraft: state.purchaseDraft,
@@ -404,15 +405,21 @@ async function refresh() {
 }
 
 try {
-  state.demoAuth = (await api.authMode()) === 'demo';
-  state.role = localStorage.getItem('agent-market-view-role') === 'seller' ? 'seller' : 'buyer';
-  await refresh();
-  state.page = ({ '#browse': 'browse', '#sell': 'sell', '#buy': 'buy', '#mine': 'mine', '#demand': 'demand', '#agent': 'agent' })[location.hash] || 'home';
-  history.replaceState({ page: state.page, scrollY: window.scrollY }, '', location.href);
-  window.addEventListener('popstate', event => {
-    captureForms(); state.page = event.state?.page || 'home'; state.error = ''; state.notice = '';
-    render(); requestAnimationFrame(() => window.scrollTo({ top: event.state?.scrollY || 0, behavior: 'instant' }));
-  });
-  render();
+  if (window.AGENT_MARKET_WEB_AUTH) {
+    state.webSession = await api.webSession();
+    if (!state.webSession?.authenticated) location.replace('/login');
+  }
+  if (!window.AGENT_MARKET_WEB_AUTH || state.webSession?.authenticated) {
+    state.demoAuth = (await api.authMode()) === 'demo';
+    state.role = localStorage.getItem('agent-market-view-role') === 'seller' ? 'seller' : 'buyer';
+    await refresh();
+    state.page = ({ '#browse': 'browse', '#sell': 'sell', '#buy': 'buy', '#mine': 'mine', '#demand': 'demand', '#agent': 'agent' })[location.hash] || 'home';
+    history.replaceState({ page: state.page, scrollY: window.scrollY }, '', location.href);
+    window.addEventListener('popstate', event => {
+      captureForms(); state.page = event.state?.page || 'home'; state.error = ''; state.notice = '';
+      render(); requestAnimationFrame(() => window.scrollTo({ top: event.state?.scrollY || 0, behavior: 'instant' }));
+    });
+    render();
+  }
 }
-catch (error) { state.error = `매물을 불러오지 못했습니다. ${error.message}`; render(); }
+catch (error) { if (window.AGENT_MARKET_WEB_AUTH && error.status === 401) location.replace('/login'); else { state.error = `매물을 불러오지 못했습니다. ${error.message}`; render(); } }

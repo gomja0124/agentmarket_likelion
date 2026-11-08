@@ -12,6 +12,7 @@
     "demo:search": "npm --prefix backend run demo:search",
     "start:mcp": "npm --prefix backend run start:mcp",
     "start:mcp:http": "npm --prefix backend run start:mcp:http",
+    "start:web": "npm --prefix backend run start:web",
     "test:mcp": "npm --prefix backend run test:mcp"
   },
   "engines": {

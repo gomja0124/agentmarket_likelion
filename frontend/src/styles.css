@@ -48,3 +48,13 @@
 .detail-action{margin-top:19px}
 .empty-state>.btn{margin-top:18px}
 @media(max-width:700px){.intent-entry{flex-direction:column}.seller-overview{flex-direction:column;margin-bottom:42px}.seller-overview>div{min-width:0}.intent-panel{padding:18px}}
+.login-body { min-height: 100vh; background: #f6f7f4; }
+.login-wrap { width: min(440px, calc(100% - 32px)); margin: 10vh auto 48px; }
+.login-brand { color: #17211c; font-size: 26px; font-weight: 800; letter-spacing: -.06em; margin-bottom: 30px; }
+.login-brand span { color: #9ccf71; }
+.login-card { background: #fff; border: 1px solid #e4e9e2; border-radius: 24px; padding: 32px; box-shadow: 0 22px 60px #18271a12; }
+.login-card h1 { font-size: 32px; margin: 12px 0 8px; }
+.login-card p { color: #66736b; line-height: 1.6; }
+.login-card .field { display: block; margin: 22px 0; }
+.login-card input { width: 100%; }
+.login-error { color: #b13535 !important; }

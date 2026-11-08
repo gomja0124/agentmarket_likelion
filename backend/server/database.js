@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DEMO_USER_ID, SEED_SELLER_ID, seedListings } from './seed.js';
 import { matchDemand } from './reverse-market.js';
 
-const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql', './migrations/003_reverse_market.sql']
+const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql', './migrations/003_reverse_market.sql', './migrations/004_web_auth.sql']
   .map(file => fileURLToPath(new URL(file, import.meta.url)));
 const json = value => JSON.stringify(value ?? []);
 const parseJson = value => JSON.parse(value || '[]');
@@ -112,6 +112,7 @@ export class Store {
     if (absolutePath !== ':memory:') mkdirSync(dirname(absolutePath), { recursive: true });
     this.db = new DatabaseSync(absolutePath);
     this.db.exec('PRAGMA foreign_keys = ON;');
+    if (absolutePath !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
     for (const migrationPath of migrationPaths) this.db.exec(readFileSync(migrationPath, 'utf8'));
     if (!this.db.prepare('PRAGMA table_info(purchase_requests)').all().some(column => column.name === 'skipped_question_fields_json')) {
       this.db.exec("ALTER TABLE purchase_requests ADD COLUMN skipped_question_fields_json TEXT NOT NULL DEFAULT '[]'");
@@ -131,6 +132,45 @@ export class Store {
     this.db.prepare('INSERT OR IGNORE INTO users (id, nickname, created_at) VALUES (?, ?, ?)')
       .run(userId, '데모 사용자', new Date().toISOString());
   }
+
+  createWebUser({ id, loginName, nickname, passwordHash, now }) {
+    return transaction(this.db, () => {
+      this.db.prepare('INSERT INTO users (id, nickname, created_at) VALUES (?, ?, ?)').run(id, nickname, now);
+      this.db.prepare('INSERT INTO web_credentials (user_id, login_name, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(id, loginName, passwordHash, now, now);
+      return { id, loginName, nickname };
+    });
+  }
+
+  setWebCredential({ userId, loginName, passwordHash, now }) {
+    return transaction(this.db, () => {
+      if (!this.getUser(userId)) throw new Error('사용자를 찾을 수 없습니다.');
+      this.db.prepare(`INSERT INTO web_credentials (user_id, login_name, password_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET login_name=excluded.login_name,
+        password_hash=excluded.password_hash, updated_at=excluded.updated_at`)
+        .run(userId, loginName, passwordHash, now, now);
+      this.db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
+    });
+  }
+
+  getWebCredential(loginName) {
+    return this.db.prepare(`SELECT c.user_id AS userId, c.password_hash AS passwordHash, u.nickname AS nickname
+      FROM web_credentials c JOIN users u ON u.id = c.user_id WHERE c.login_name = ?`).get(loginName);
+  }
+
+  saveWebSession({ sessionHash, userId, createdAt, expiresAt }) {
+    this.db.prepare('INSERT INTO web_sessions (session_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+      .run(sessionHash, userId, createdAt, expiresAt);
+  }
+
+  getWebSession(sessionHash, now) {
+    return this.db.prepare(`SELECT s.session_hash AS sessionHash, s.user_id AS userId,
+      s.expires_at AS expiresAt, u.nickname AS nickname FROM web_sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.session_hash = ? AND s.expires_at > ?`).get(sessionHash, now);
+  }
+
+  deleteWebSession(sessionHash) { this.db.prepare('DELETE FROM web_sessions WHERE session_hash = ?').run(sessionHash); }
+  purgeExpiredWebSessions(now) { this.db.prepare('DELETE FROM web_sessions WHERE expires_at <= ?').run(now); }
 
   transaction(work) { return transaction(this.db, work); }
 
