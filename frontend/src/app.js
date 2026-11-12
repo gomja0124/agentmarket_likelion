@@ -2,6 +2,7 @@ import { api, currentDemoAccount, isDemo, switchDemoAccount } from './api.js';
 import { categories, conditions, formatPrice, labelFor } from './data.js';
 import { listingMissing, requestMissing, unresolvedFields } from './matching.js';
 import { matchesBrowseQuery } from './model-search.js';
+import { karrotSearchFor } from './karrot.js';
 
 const root = document.querySelector('#app');
 const state = { page: 'home', listings: [], myListings: [], drafts: [], purchaseRequests: [], results: [], selected: null,
@@ -66,7 +67,7 @@ function card(item, result) {
   const match = result?.matchStatus;
   return `<button class="product-card" data-detail="${esc(item.id)}" aria-label="${esc(item.title)} 상세 보기">
     <div class="card-visual visual-${item.category.toLowerCase()}">${productArt(item)}<span class="card-category">${categories[item.category] || '기기'}</span></div>
-    <div class="card-body"><div class="card-topline"><span>${esc(item.brand || '')}</span>${match ? `<span class="match-badge ${match === 'MATCH' ? 'match' : 'needs'}">${match === 'MATCH' ? '조건 충족' : '확인 필요'}</span>` : ''}</div>
+    <div class="card-body"><div class="card-topline"><span>${esc(item.brand || '')}</span>${item.isSample ? '<span class="sample-badge">시연용 매물</span>' : ''}${match ? `<span class="match-badge ${match === 'MATCH' ? 'match' : 'needs'}">${match === 'MATCH' ? '조건 충족' : '확인 필요'}</span>` : ''}</div>
     <h3>${esc(item.title)}</h3><p class="card-meta">${esc(item.model || '모델 확인 필요')} <span>·</span> ${item.storageGb ? `${esc(item.storageGb)}GB` : '용량 확인 필요'} <span>·</span> ${conditions[item.condition] || '상태 확인 필요'}</p>
     ${result ? `<p class="card-reason">${result.matchedFields?.length ? `충족: ${result.matchedFields.map(labelFor).map(esc).join(', ')}` : ''}${result.missingFields?.length ? `<br>확인 필요: ${result.missingFields.map(labelFor).map(esc).join(', ')}` : ''}</p>` : item.missingFields?.length ? `<p class="card-reason">확인 필요: ${item.missingFields.map(labelFor).map(esc).join(', ')}</p>` : ''}
     <div class="card-bottom"><strong>${formatPrice(item.priceKrw)}</strong><span>${icon('arrow', 18)}</span></div></div></button>`;
@@ -76,7 +77,8 @@ function home() {
   if (currentRole() === 'seller') return sellerHome();
   return `<section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow"><span class="eyebrow-dot"></span> 원하는 기기를 먼저 말해 주세요</span>
     <h1>찾는 조건을 말하면,<br/><em>맞는 매물을 제안해요.</em></h1><p>예산과 원하는 기기를 입력하면 여러 매물을 비교해 볼 수 있어요.<br/>맞는 매물이 없으면 “구해요”를 공개해 판매자의 제안을 받을 수 있습니다.</p>
-    <div class="hero-actions"><button class="btn btn-dark" data-nav="buy">내 조건으로 구해요 ${icon('arrow', 18)}</button><button class="btn btn-light" data-nav="browse">현재 매물 ${state.listings.filter(x => x.status === 'ACTIVE').length}개 보기</button></div>
+    <div class="hero-actions"><button class="btn btn-dark" data-nav="buy">내 조건으로 구해요 ${icon('arrow', 18)}</button><button class="btn btn-light" data-nav="browse">등록 매물 ${state.listings.filter(x => x.status === 'ACTIVE').length}개 보기</button></div>
+    <p class="sample-note">자체 매물에는 시연용 데이터가 포함될 수 있습니다. 조건을 정리한 뒤 당근의 실제 판매 매물도 검색할 수 있어요.</p>
     <div class="hero-stats"><div><strong>${state.listings.filter(x => x.status === 'ACTIVE').length}</strong><small>등록된 기기</small></div><i></i><div><strong>2</strong><small>지원 카테고리</small></div><i></i><div><strong>100<span>%</span></strong><small>사람이 최종 결정</small></div></div>
   </div><div class="hero-visual"><div class="hero-circle circle-one"></div><div class="hero-circle circle-two"></div><div class="hero-device tablet-art"><div class="device-screen"><div class="screen-glow"></div><div class="screen-orb"></div></div></div><div class="hero-device phone-front"><div class="device-screen"><div class="screen-glow"></div><div class="screen-orb"></div></div></div><div class="float-card float-top">${icon('spark', 18)} <span>나에게 맞는 매물 발견</span></div><div class="float-card float-bottom">${icon('shield', 18)} <span>확인하고 직접 결정</span></div></div></div></section>
   <section class="value-strip"><div class="container value-grid"><div><span class="value-icon">${icon('spark', 22)}</span><div><strong>1. 조건 말하기</strong><p>기기·예산을 자연어로 시작</p></div></div><div><span class="value-icon">${icon('search', 22)}</span><div><strong>2. 복수 후보 비교</strong><p>맞는 이유와 확인할 정보 보기</p></div></div><div><span class="value-icon">${icon('shield', 22)}</span><div><strong>3. 없으면 구해요 공개</strong><p>판매자 연결은 직접 승인</p></div></div></div></section>
@@ -157,7 +159,13 @@ function reviewRequest() {
   const missing = unresolvedFields(d, requestMissing);
   return `<main class="container review-page"><button class="back-link" data-nav="buy">← 조건 수정하기</button><div class="review-title"><span class="section-kicker">YOUR SEARCH</span><h1>검색 조건을 확인해 주세요</h1><p>조건을 확정하면 등록된 매물에서 후보를 찾아요.</p></div>
     <div class="review-grid"><div class="review-card request-review"><div class="review-content"><div class="agent-label">${icon('spark', 16)} ${d.source === 'AGENT' ? 'Agent 조건 초안' : '직접 작성한 조건'}</div><h2>내가 찾는 기기</h2><div class="detail-table"><div><span>기기 종류</span><strong>${categories[d.category] || '확인 필요'}</strong></div><div><span>최대 예산</span><strong>${d.maxBudgetKrw ? formatPrice(d.maxBudgetKrw) : '확인 필요'}</strong></div><div><span>모델</span><strong>${esc(d.modelQuery || (missing.includes('modelQuery') ? '미확정' : '상관없음'))}</strong></div><div><span>최소 용량</span><strong>${d.storageGb ? `${esc(d.storageGb)}GB` : '상관없음'}</strong></div><div><span>제품 상태</span><strong>${d.conditionPreferences?.length ? d.conditionPreferences.map(x => conditions[x]).join(', ') : '상관없음'}</strong></div></div></div></div>
-    <div class="approval-panel"><div class="approval-icon">${icon('search', 27)}</div><h2>직접 검색 승인</h2><p>이 조건으로 검색을 실행합니다. Agent는 승인 전 검색을 확정할 수 없습니다.</p>${missingBox(missing)}${questionsBox(d.nextQuestions)}<button class="btn btn-dark full" id="search-button" ${requestMissing(d).length ? 'disabled' : ''}>조건 확인하고 검색하기 ${icon('arrow', 18)}</button><button class="btn btn-plain full" data-nav="buy">조건 수정하기</button></div></div></main>`;
+    <div class="approval-panel"><div class="approval-icon">${icon('search', 27)}</div><h2>직접 검색 승인</h2><p>이 조건으로 우리 서비스의 등록 매물을 검색합니다. Agent는 승인 전 검색을 확정할 수 없습니다.</p>${missingBox(missing)}${questionsBox(d.nextQuestions)}<button class="btn btn-dark full" id="search-button" ${requestMissing(d).length ? 'disabled' : ''}>등록 매물 검색하기 ${icon('arrow', 18)}</button><button class="btn btn-plain full" data-nav="buy">조건 수정하기</button></div></div>${karrotPanel(d)}</main>`;
+}
+
+function karrotPanel(request) {
+  if (!request?.category) return '';
+  const search = karrotSearchFor(request);
+  return `<section class="karrot-panel"><div><span class="section-kicker">KARROT SEARCH</span><h2>당근에서 실제 판매 매물 찾기</h2><p>정리한 조건으로 당근 중고거래 검색을 엽니다. 우리 서비스의 매칭 결과와는 별개이며, 매물 정보는 당근에서 직접 확인합니다.</p><p class="karrot-filters"><strong>전달 조건</strong> ${esc(search.keyword)} · 디지털기기 · 거래 가능${search.maxBudgetKrw ? ` · ${formatPrice(search.maxBudgetKrw)} 이하` : ''}</p><small>용량·제품 상태·거래 지역은 당근에서 다시 확인해 주세요.</small></div><a class="btn btn-dark" href="${esc(search.url)}" target="_blank" rel="noopener noreferrer">당근 검색 열기 ↗</a></section>`;
 }
 
 function results() {
@@ -167,7 +175,7 @@ function results() {
     <div class="result-summary">${icon('shield', 21)} <span>확인되지 않은 정보는 조건 충족으로 판단하지 않아요.</span></div>
     <div class="section-heading compact"><div><h2>조건에 맞는 매물 <span>${matches.length}</span></h2></div></div>
     ${matches.length ? `<div class="product-grid">${matches.map(x => card(x.listing, x)).join('')}</div>` : `<div class="empty-state">${icon('search', 28)}<h3>조건에 딱 맞는 매물이 없어요</h3><p>조건을 조정하거나 검토한 조건을 “구해요”로 공개해 판매자의 제안을 받을 수 있어요.</p>${!isDemo && state.purchaseDraft?.status === 'CONFIRMED' ? `<button class="btn btn-dark" data-create-demand="${esc(state.purchaseDraft.id)}">구해요 초안 만들기</button>` : ''}</div>`}
-    ${needs.length ? `<div class="section-heading compact needs-heading"><div><h2>확인이 필요한 매물 <span>${needs.length}</span></h2><p>정보가 부족해 판매자에게 확인이 필요한 후보예요.</p></div></div><div class="product-grid">${needs.map(x => card(x.listing, x)).join('')}</div>` : ''}</main>`;
+    ${needs.length ? `<div class="section-heading compact needs-heading"><div><h2>확인이 필요한 매물 <span>${needs.length}</span></h2><p>정보가 부족해 판매자에게 확인이 필요한 후보예요.</p></div></div><div class="product-grid">${needs.map(x => card(x.listing, x)).join('')}</div>` : ''}${karrotPanel(state.purchaseDraft)}</main>`;
 }
 
 function detail() {
@@ -175,7 +183,7 @@ function detail() {
   if (!item) return browse();
   const result = state.results.find(x => x.listingId === item.id);
   return `<main class="container detail-page"><button class="back-link" data-back-list data-fallback="${state.results.length ? 'results' : 'browse'}">← 이전 목록으로 돌아가기</button><div class="detail-grid"><div class="detail-visual visual-${item.category.toLowerCase()}">${productArt(item)}</div>
-    <div class="detail-copy"><div class="detail-kicker">${categories[item.category]} <span>·</span> ${esc(item.brand || '')}</div><h1>${esc(item.title)}</h1><div class="detail-price">${formatPrice(item.priceKrw)}</div><div class="detail-divider"></div>
+    <div class="detail-copy"><div class="detail-kicker">${categories[item.category]} <span>·</span> ${esc(item.brand || '')}${item.isSample ? ' <span>·</span> 시연용 매물' : ''}</div><h1>${esc(item.title)}</h1><div class="detail-price">${formatPrice(item.priceKrw)}</div><div class="detail-divider"></div>
     ${result ? `<div class="result-detail ${result.matchStatus === 'MATCH' ? 'matched' : 'needs'}"><strong>${result.matchStatus === 'MATCH' ? `${icon('check', 18)} 조건에 맞는 매물` : `${icon('alert', 18)} 확인이 필요한 매물`}</strong><p>${result.matchedFields?.length ? `충족: ${result.matchedFields.map(labelFor).map(esc).join(', ')}` : ''}</p>${result.missingFields?.length ? `<p>확인 필요: ${result.missingFields.map(labelFor).map(esc).join(', ')}</p>` : ''}</div>` : missingBox(item.missingFields)}
     <div class="detail-table"><div><span>모델</span><strong>${esc(item.model || '확인 필요')}</strong></div><div><span>저장 용량</span><strong>${item.storageGb ? `${esc(item.storageGb)}GB` : '확인 필요'}</strong></div><div><span>제품 상태</span><strong>${conditions[item.condition] || '확인 필요'}</strong></div><div><span>구성품</span><strong>${esc(item.accessories || '확인 필요')}</strong></div></div><div class="detail-note">${icon('shield', 19)} 확인되지 않은 정보는 판매자에게 직접 확인해 주세요.</div>${currentRole() === 'buyer' ? `<button class="btn btn-outline detail-action" data-nav="buy">내 조건으로 후보 비교하기 ${icon('arrow', 17)}</button>` : ''}</div></div>
     <section class="description-section"><h2>판매자의 설명</h2><p>${esc(item.description || '설명이 없습니다.')}</p></section></main>`;

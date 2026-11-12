@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>회원가입 · Agent Market</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body class="login-body">
+    <main class="login-wrap">
+      <a class="login-brand" href="/">agent market<span>.</span></a>
+      <form id="register-form" class="login-card">
+        <span class="section-kicker">JOIN AGENT MARKET</span>
+        <h1>회원가입</h1>
+        <p>계정을 만들고 원하는 기기를 찾아보세요.</p>
+        <label class="field"><span class="field-label">로그인 이름</span><input name="loginName" autocomplete="username" required minlength="3" maxlength="120" pattern="[a-zA-Z0-9._@-]+" aria-describedby="login-name-hint" /><small id="login-name-hint">영문·숫자·._@- 조합 3자 이상</small></label>
+        <label class="field"><span class="field-label">표시 이름</span><input name="nickname" autocomplete="nickname" required maxlength="80" /></label>
+        <label class="field"><span class="field-label">비밀번호</span><input name="password" type="password" autocomplete="new-password" required minlength="12" aria-describedby="password-hint" /><small id="password-hint">12자 이상</small></label>
+        <label class="field"><span class="field-label">비밀번호 확인</span><input name="passwordConfirm" type="password" autocomplete="new-password" required minlength="12" /></label>
+        <p id="register-error" class="login-error" role="alert" hidden></p>
+        <button class="btn btn-dark full" type="submit">계정 만들기</button>
+        <p class="auth-switch">이미 계정이 있나요? <a href="/login">로그인</a></p>
+      </form>
+    </main>
+    <script type="module" src="/src/register.js"></script>
+  </body>
+</html>

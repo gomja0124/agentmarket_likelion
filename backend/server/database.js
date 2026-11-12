@@ -37,6 +37,7 @@ function listingFromRow(row) {
     description: row.description, category: row.category, brand: row.brand, model: row.model,
     storageGb: row.storage_gb, condition: row.condition, accessories: row.accessories,
     priceKrw: row.price_krw, images: parseJson(row.images_json), missingFields: parseJson(row.missing_fields_json),
+    isSample: row.seller_id === SEED_SELLER_ID,
     status: row.status, publishedAt: row.published_at, createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }

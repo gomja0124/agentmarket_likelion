@@ -109,6 +109,38 @@ test('Web login creates a server session and forwards only its verified identity
   });
 });
 
+test('public registration creates an account and session while rejecting invalid or duplicate signups', async () => {
+  await withServers(async ({ webUrl, web }) => {
+    const page = await fetch(`${webUrl}/register`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /회원가입/);
+    const register = (body, requestOrigin = origin) => fetch(`${webUrl}/web/register`, {
+      method: 'POST', headers: { Origin: requestOrigin, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const details = { loginName: 'New_Buyer', nickname: '새 구매자', password: 'secure-signup-password' };
+    assert.equal((await register(details, 'https://other.example')).status, 403);
+    assert.equal((await register({ ...details, password: 'short' })).status, 400);
+    assert.equal((await register({ ...details, nickname: '   ' })).status, 400);
+    assert.equal(web.store.db.prepare('SELECT COUNT(*) AS count FROM web_credentials').get().count, 0);
+
+    const created = await register(details);
+    assert.equal(created.status, 200);
+    const cookie = created.headers.get('set-cookie').split(';')[0];
+    const session = await created.json();
+    assert.equal(session.nickname, details.nickname);
+    assert.ok(session.csrfToken);
+    assert.equal((await (await fetch(`${webUrl}/api/me`, { headers: { Cookie: cookie } })).json()).userId, session.userId);
+    assert.equal((await fetch(`${webUrl}/register`, { headers: { Cookie: cookie } })).url, `${webUrl}/`);
+    assert.equal((await register(details)).status, 409);
+    assert.equal(web.store.db.prepare('SELECT COUNT(*) AS count FROM web_credentials').get().count, 1);
+    const login = await fetch(`${webUrl}/web/login`, { method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loginName: details.loginName, password: details.password }) });
+    assert.equal(login.status, 200);
+  });
+});
+
 test('password reissue revokes existing sessions and expired sessions cannot access the API', async () => {
   await withServers(async ({ webUrl, web }) => {
     const user = await provisionWebUser(web.store, { loginName: 'buyer2', nickname: '구매자 2', password: 'first-strong-password' });

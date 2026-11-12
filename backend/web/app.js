@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../server/database.js';
-import { csrfToken, newSessionToken, normalizeLoginName, safeEqual, sessionHash, verifyPassword } from './auth.js';
+import { csrfToken, newSessionToken, normalizeLoginName, provisionWebUser, safeEqual, sessionHash, verifyPassword } from './auth.js';
 
 const defaultFrontendDir = fileURLToPath(new URL('../../frontend/', import.meta.url));
 const maxBodyBytes = 1_500_000;
@@ -54,6 +54,7 @@ export function createWebServer(options = {}) {
   const frontendDir = resolve(options.frontendDir || defaultFrontendDir);
   const attempts = new Map();
   let activeLogins = 0;
+  let activeRegistrations = 0;
 
   const sessionFor = request => {
     const token = cookieValue(request.headers.cookie, config.cookieName);
@@ -66,12 +67,22 @@ export function createWebServer(options = {}) {
   };
   const validOrigin = request => request.headers.origin === config.origin;
   const validCsrf = (request, session) => safeEqual(request.headers['x-csrf-token'], csrfToken(config.webSecret, session.token));
-  const rateLimited = key => {
+  const rateLimited = (key, limit = loginLimit) => {
     const now = Date.now();
     const record = attempts.get(key);
     if (!record || now - record.start > loginWindowMs) { attempts.set(key, { start: now, count: 1 }); return false; }
     record.count += 1;
-    return record.count > loginLimit;
+    return record.count > limit;
+  };
+  const createSession = (response, user) => {
+    const token = newSessionToken();
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + sessionSeconds * 1000).toISOString();
+    store.purgeExpiredWebSessions(createdAt);
+    store.saveWebSession({ sessionHash: sessionHash(token), userId: user.id, createdAt, expiresAt });
+    setCookie(response, token);
+    json(response, 200, { authenticated: true, userId: user.id, nickname: user.nickname,
+      csrfToken: csrfToken(config.webSecret, token) });
   };
 
   const serveFile = async (response, relative, contentType) => {
@@ -98,6 +109,39 @@ export function createWebServer(options = {}) {
         json(response, 200, session ? { authenticated: true, userId: session.userId, nickname: session.nickname,
           csrfToken: csrfToken(config.webSecret, session.token) } : { authenticated: false }); return;
       }
+      if (method === 'POST' && path === '/web/register') {
+        if (!validOrigin(request)) { error(response, 403, 'BAD_ORIGIN', '허용되지 않은 요청 출처입니다.'); return; }
+        if (!String(request.headers['content-type'] || '').startsWith('application/json')) {
+          error(response, 415, 'UNSUPPORTED_MEDIA_TYPE', 'JSON 요청만 허용합니다.'); return;
+        }
+        if (activeRegistrations >= 4) { error(response, 429, 'RATE_LIMITED', '잠시 후 다시 시도해 주세요.'); return; }
+        const ip = request.socket.remoteAddress || 'unknown';
+        if (rateLimited(`register:ip:${ip}`, 20)) {
+          error(response, 429, 'RATE_LIMITED', '가입 시도가 많습니다. 10분 뒤 다시 시도해 주세요.'); return;
+        }
+        const body = JSON.parse((await readBody(request)).toString('utf8'));
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          error(response, 400, 'INVALID_REGISTRATION', '가입 정보를 확인해 주세요.'); return;
+        }
+        let loginName;
+        try { loginName = normalizeLoginName(body.loginName); }
+        catch (cause) { error(response, 400, 'INVALID_REGISTRATION', cause.message); return; }
+        if (store.getWebCredential(loginName)) {
+          error(response, 409, 'LOGIN_NAME_TAKEN', '이미 사용 중인 로그인 이름입니다.'); return;
+        }
+        activeRegistrations += 1;
+        try {
+          const user = await provisionWebUser(store, { loginName, nickname: body.nickname, password: body.password });
+          createSession(response, { id: user.id, nickname: user.nickname });
+        } catch (cause) {
+          if (String(cause.message).includes('UNIQUE constraint failed: web_credentials.login_name')) {
+            error(response, 409, 'LOGIN_NAME_TAKEN', '이미 사용 중인 로그인 이름입니다.');
+          } else if (/^(표시 이름은|비밀번호는)/.test(String(cause.message))) {
+            error(response, 400, 'INVALID_REGISTRATION', cause.message);
+          } else { throw cause; }
+        } finally { activeRegistrations -= 1; }
+        return;
+      }
       if (method === 'POST' && path === '/web/login') {
         if (!validOrigin(request)) { error(response, 403, 'BAD_ORIGIN', '허용되지 않은 요청 출처입니다.'); return; }
         if (!String(request.headers['content-type'] || '').startsWith('application/json')) { error(response, 415, 'UNSUPPORTED_MEDIA_TYPE', 'JSON 요청만 허용합니다.'); return; }
@@ -117,14 +161,7 @@ export function createWebServer(options = {}) {
             error(response, 401, 'INVALID_CREDENTIALS', '로그인 이름 또는 비밀번호가 올바르지 않습니다.'); return;
           }
           attempts.delete(`ip:${ip}`); attempts.delete(`user:${loginName}`);
-          const token = newSessionToken();
-          const createdAt = new Date().toISOString();
-          const expiresAt = new Date(Date.now() + sessionSeconds * 1000).toISOString();
-          store.purgeExpiredWebSessions(createdAt);
-          store.saveWebSession({ sessionHash: sessionHash(token), userId: credential.userId, createdAt, expiresAt });
-          setCookie(response, token);
-          json(response, 200, { authenticated: true, userId: credential.userId, nickname: credential.nickname,
-            csrfToken: csrfToken(config.webSecret, token) }); return;
+          createSession(response, { id: credential.userId, nickname: credential.nickname }); return;
         } finally { activeLogins -= 1; }
       }
       if (method === 'POST' && path === '/web/logout') {
@@ -155,6 +192,10 @@ export function createWebServer(options = {}) {
       if (path === '/login') {
         if (session) { response.writeHead(302, { Location: '/' }); response.end(); return; }
         await serveFile(response, 'login.html', 'text/html; charset=utf-8'); return;
+      }
+      if (path === '/register') {
+        if (session) { response.writeHead(302, { Location: '/' }); response.end(); return; }
+        await serveFile(response, 'register.html', 'text/html; charset=utf-8'); return;
       }
       if (path === '/') {
         await serveFile(response, session ? 'index.html' : 'landing.html', 'text/html; charset=utf-8'); return;

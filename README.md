@@ -69,4 +69,4 @@ Step 2 MCP 도구는 `AGENT_MARKET_ENABLE_STEP2=1`로 MCP 서버를 실행할 �
 
 ## 배포 구성
 
-저장소 루트의 `Dockerfile`은 Web, strict API, HTTP MCP를 한 컨테이너의 한 공개 포트로 실행합니다. `/mcp`는 토큰 인증을 사용하고 API는 컨테이너 내부에서만 열립니다. 기존 AWS 서버가 확인되면 [EC2 배포 구성](backend/docs/deploy-aws.md)의 Caddy와 영속 볼륨을 사용합니다. [Railway 배포 경로](backend/docs/deployment.md)도 준비되어 있습니다. `backend/docker-compose.yml`은 자체 서버용 3서비스 대안입니다. 계정은 관리자가 CLI로 발급하며 공개 회원가입은 아직 없습니다. 실제 호스팅 계정 연결, 운영 백업, 외부 Agent 앱 등록은 아직 남았습니다.
+저장소 루트의 `Dockerfile`은 Web, strict API, HTTP MCP를 한 컨테이너의 한 공개 포트로 실행합니다. `/mcp`는 토큰 인증을 사용하고 API는 컨테이너 내부에서만 열립니다. [EC2 배포 구성](backend/docs/deploy-aws.md)은 Caddy와 영속 볼륨을 사용합니다. [Railway 배포 경로](backend/docs/deployment.md)도 준비되어 있습니다. `backend/docker-compose.yml`은 자체 서버용 3서비스 대안입니다. 공개 회원가입과 로그인은 Web에서 지원하고, 기존 관리자 계정은 CLI로 발급할 수 있습니다. 구매 조건을 정리한 뒤 당근 중고거래 검색으로 이동하는 기능은 확인된 공개 웹 검색 필터만 사용하며, 당근 매물을 자체 DB로 복사하거나 자동 매칭하지 않습니다. 운영 백업과 외부 Agent 앱 등록은 별도로 확인해야 합니다.

@@ -27,14 +27,14 @@ AGENT_MARKET_DB_PATH=/absolute/path/agent-market.sqlite \
   node backend/scripts/create-web-user.js buyer1 '구매자 1'
 ```
 
-브라우저에서는 `http://127.0.0.1:4173`으로 접속한다. 로그인 화면으로 이동한 뒤 계정 정보를 입력한다. 공개 환경에서는 HTTPS 주소를 `AGENT_MARKET_WEB_URL`로 설정해야 한다.
+브라우저에서는 `http://127.0.0.1:4173`으로 접속한다. `/register`에서 로그인 이름·표시 이름·12자 이상 비밀번호를 입력하면 계정과 세션이 생성된다. 기존 계정은 `/login`에서 로그인한다. 공개 환경에서는 HTTPS 주소를 `AGENT_MARKET_WEB_URL`로 설정해야 한다.
 
 ## 인증 경계
 
 - 비밀번호는 무작위 salt를 사용한 scrypt 해시로 저장한다. Web 세션은 12시간 유효하고 DB에는 무작위 세션 원문 대신 SHA-256 해시만 저장한다.
 - HTTPS에서는 `__Host-` 접두사, `Secure`, `HttpOnly`, `SameSite=Strict` 쿠키를 사용한다. 로컬 HTTP는 별도 개발 쿠키 이름을 쓴다. 변경 요청은 설정한 Web origin과 CSRF 토큰을 모두 확인한다.
-- 로그인 시도는 Web 프로세스별 IP와 로그인 이름 기준으로 제한한다. 여러 Web 복제본을 운영한다면 중앙 저장소를 이용한 제한으로 바꿔야 한다.
-- 공개 회원가입·이메일 인증·비밀번호 찾기 UI는 아직 없다. 초기에는 관리자가 계정을 발급하는 방식이다. 정확한 사용자 가입 방식은 제품 결정이 필요하다.
+- 로그인 시도는 Web 프로세스별 IP와 로그인 이름 기준으로, 공개 가입은 IP 기준으로 제한한다. 여러 Web 복제본을 운영한다면 중앙 저장소를 이용한 제한으로 바꿔야 한다.
+- 공개 회원가입은 가능하다. 이메일 인증·비밀번호 찾기 UI와 계정 복구 절차는 아직 없다. 로그인 이름은 이메일 주소를 입력할 수 있지만 이메일 소유 확인은 하지 않는다.
 - API의 `8080` 포트는 공개 인터넷으로 전달하지 않는다. Docker Compose는 Web/API/MCP를 모두 localhost에만 노출하고, 외부 HTTPS 프록시가 Web과 `/mcp`만 노출하도록 준비한다.
 
 ## Docker Compose
@@ -43,6 +43,6 @@ AGENT_MARKET_DB_PATH=/absolute/path/agent-market.sqlite \
 
 운영 데이터의 일관된 스냅샷은 `docker compose exec web node backend/scripts/backup-db.js /data/backups`로 만들 수 있다. 스크립트는 SQLite `VACUUM INTO`로 별도 파일을 생성하고 `integrity_check`를 실행한다. 백업 파일에는 계정과 거래 데이터가 포함되므로 접근 제어된 별도 저장소로 이동하고 주기·보존 기간·복구 시험을 운영 환경에 맞게 설정해야 한다. [SQLite 공식 문서](https://www.sqlite.org/lang_vacuum.html)도 참고한다.
 
-현재 구성은 서버·컨테이너 설정까지다. 공개 도메인, TLS 프록시, 운영 백업, 외부 Agent 클라이언트 연결과 실제 계정 UAT는 별도로 완료해야 한다.
+공개 주소에서의 회원가입·로그인·구매 흐름, 운영 백업, 외부 Agent 클라이언트 연결은 배포 후 별도로 확인해야 한다.
 
 설계 참고: [OWASP 세션 관리](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html), [OWASP CSRF 방어](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), [OWASP 비밀번호 저장](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).

@@ -8,15 +8,16 @@
   </head>
   <body class="login-body">
     <main class="login-wrap">
-      <div class="login-brand">agent market<span>.</span></div>
+      <a class="login-brand" href="/">agent market<span>.</span></a>
       <form id="login-form" class="login-card">
         <span class="section-kicker">WELCOME BACK</span>
         <h1>로그인</h1>
-        <p>발급받은 로그인 이름과 비밀번호를 입력해 주세요.</p>
+        <p>로그인 이름과 비밀번호를 입력해 주세요.</p>
         <label class="field"><span class="field-label">로그인 이름</span><input name="loginName" autocomplete="username" required maxlength="120" /></label>
         <label class="field"><span class="field-label">비밀번호</span><input name="password" type="password" autocomplete="current-password" required /></label>
         <p id="login-error" class="login-error" role="alert" hidden></p>
         <button class="btn btn-dark full" type="submit">로그인</button>
+        <p class="auth-switch">계정이 없나요? <a href="/register">회원가입</a></p>
       </form>
     </main>
     <script type="module" src="/src/login.js"></script>

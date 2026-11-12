@@ -58,3 +58,17 @@
 .login-card .field { display: block; margin: 22px 0; }
 .login-card input { width: 100%; }
 .login-error { color: #b13535 !important; }
+.login-brand { display: inline-block; text-decoration: none; }
+.login-card .field small { display: block; margin-top: 8px; color: #66736b; }
+.auth-switch { margin: 20px 0 0; text-align: center; font-size: 14px; }
+.auth-switch a { color: #285f3e; font-weight: 700; }
+.hero-copy > .sample-note { margin-top: 14px; color: #627469; font-size: 12px; line-height: 1.5; }
+.card-topline { gap: 6px; flex-wrap: wrap; }
+.sample-badge { margin-left: auto; border-radius: 6px; background: #f2f3ee; color: #617164; padding: 4px 7px; font-size: 10px; }
+.karrot-panel { display: flex; align-items: center; justify-content: space-between; gap: 28px; margin-top: 42px; padding: 28px; border: 1px solid #e0e8df; border-radius: 17px; background: #f7faf5; }
+.karrot-panel h2 { margin: 9px 0 8px; font-size: 23px; letter-spacing: -.04em; }
+.karrot-panel p { margin: 0 0 12px; color: #647569; font-size: 13px; line-height: 1.65; }
+.karrot-panel .karrot-filters { color: #254b32; }
+.karrot-panel small { color: #728175; font-size: 11px; }
+.karrot-panel .btn { flex: none; }
+@media(max-width:700px) { .karrot-panel { display: block; padding: 20px; } .karrot-panel .btn { margin-top: 17px; width: 100%; } }
