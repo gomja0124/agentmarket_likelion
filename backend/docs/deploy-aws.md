@@ -1,6 +1,6 @@
 # AWS EC2 배포 경로
 
-이 문서는 이미 접근 권한이 있는 EC2 인스턴스가 확인되었을 때의 절차다. 2026-11-13 기준 공개 주소 `https://gomja-market.store`의 `/healthz` 응답은 확인했지만, EC2 인스턴스와 배포 명령 실행 여부는 별도로 확인해야 한다. 다른 프로젝트의 서버나 SSH 키를 임의로 재사용하지 않는다.
+2026-11-13 기준 서울 리전의 `gomja-market-backend` EC2 인스턴스에서 `dokyeong-merge`의 `47ff0c6`을 배포했다. 공개 주소 `https://gomja-market.store`의 첫 화면·회원가입 페이지·`/healthz` 응답과 앱 컨테이너의 Healthy 상태를 확인했다. 서버의 비추적 `compose.production.yml` 오버라이드는 보존한다.
 
 ## 필요한 환경
 
@@ -20,7 +20,7 @@
 ## 코드 업데이트 배포
 
 1. EC2의 현재 체크아웃과 `git status`를 확인한 뒤 `dokyeong-merge`의 최신 커밋을 가져온다. 서버에서 직접 수정한 파일이 있다면 먼저 보존한다.
-2. 저장소 루트에서 `docker compose -f compose.aws.yml up -d --build`를 실행한다. `market-data` 볼륨은 유지한다.
+2. 현재 EC2에서는 저장소 루트에서 `sudo docker compose -f compose.aws.yml -f compose.production.yml up -d --build`를 실행한다. 서버 전용 `compose.production.yml`은 버전 관리 대상이 아니다. `market-data` 볼륨은 유지한다.
 3. 비로그인 브라우저에서 `https://gomja-market.store/`가 서비스 소개 화면으로 열리는지 확인한다. `/register`는 회원가입 화면, `/login`은 로그인 화면이며, `/api/me`는 비로그인 상태에서 401이어야 한다. 가입 후 구매 조건을 정리해 당근 검색 링크가 열리는지도 확인한다.
 
 AWS IAM 콘솔 비밀번호나 액세스 키를 애플리케이션 `.env`에 넣지 않는다. 앱 `.env`에는 도메인과 `AGENT_MARKET_WEB_SECRET` 등 Compose에서 요구하는 설정만 둔다. `.env`와 자격 증명 CSV는 Git 추적 대상에서 제외한다.
