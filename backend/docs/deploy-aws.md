@@ -1,10 +1,10 @@
 # AWS EC2 배포 경로
 
-이 문서는 이미 접근 권한이 있는 EC2 인스턴스가 확인되었을 때의 절차다. 실제 AWS 계정, 인스턴스, 도메인은 현재 저장소에 기록되어 있지 않다. 다른 프로젝트의 서버나 SSH 키를 임의로 재사용하지 않는다.
+이 문서는 이미 접근 권한이 있는 EC2 인스턴스가 확인되었을 때의 절차다. 2026-11-13 기준 공개 주소 `https://gomja-market.store`의 `/healthz` 응답은 확인했지만, EC2 인스턴스와 배포 명령 실행 여부는 별도로 확인해야 한다. 다른 프로젝트의 서버나 SSH 키를 임의로 재사용하지 않는다.
 
 ## 필요한 환경
 
-- 도메인의 DNS A 레코드가 EC2의 안정적인 공개 IP(예: Elastic IP)를 가리켜야 한다.
+- 도메인의 DNS A 레코드가 EC2의 안정적인 공개 IP(예: Elastic IP)를 가리켜야 한다. Cloudflare에서 DNS를 관리한다면 Route 53을 거치지 않아도 된다.
 - EC2 인바운드 보안 그룹에서 80/443을 공개하고 22는 관리자 접속 주소로 제한한다. 8080/8090은 공개하지 않는다. [AWS 보안 그룹 설명](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/security-group-rules-reference.html).
 - EC2에 Docker Engine과 Compose plugin이 설치되어 있어야 한다. Docker 데이터 디렉터리가 영속 EBS 볼륨에 있는지 확인한다. [EBS 데이터 보존](https://docs.aws.amazon.com/ebs/latest/userguide/EBSFeatures.html).
 
@@ -13,9 +13,17 @@
 1. EC2에서 이 저장소의 `dokyeong-merge` 브랜치를 체크아웃한다.
 2. 저장소 루트에서 `.env.aws.example`을 `.env`로 복사하고 `AGENT_MARKET_DOMAIN`과 `AGENT_MARKET_WEB_SECRET`을 실제 값으로 채운다. `.env`는 Git에 넣지 않는다.
 3. `docker compose -f compose.aws.yml up -d --build`를 실행한다. `app` 한 컨테이너가 Web·strict API·MCP를 실행하고 SQLite는 `market-data` 볼륨에 저장된다. Caddy가 80/443에서 TLS를 처리한다.
-4. DNS가 연결되면 `https://<도메인>/healthz`에서 세 서비스의 정상 상태를 확인한다. `/api/me`와 `/mcp`는 인증 없이 각각 401이어야 한다. Caddy는 도메인과 80/443이 준비되면 공개 인증서를 자동 발급한다. [Caddy HTTPS 설명](https://caddyserver.com/docs/quick-starts/reverse-proxy).
+4. DNS가 연결되면 `https://<도메인>/healthz`에서 세 서비스의 정상 상태를 확인한다. 비로그인 상태에서 `/`는 서비스 소개 화면(200)을 보여주고, `/login`은 계정 입력 화면을 보여줘야 한다. `/api/me`와 `/mcp`는 인증 없이 각각 401이어야 한다. 로그인 후 `/`는 실제 앱을 보여준다. Caddy는 도메인과 80/443이 준비되면 공개 인증서를 자동 발급한다. [Caddy HTTPS 설명](https://caddyserver.com/docs/quick-starts/reverse-proxy).
 5. `docker compose -f compose.aws.yml exec app node /app/backend/scripts/create-web-user.js <로그인 이름> '<표시 이름>'`으로 초기 계정을 발급한다. 웹 로그인 후 Agent 화면에서 필요한 권한의 토큰을 발급한다.
 6. 외부 Agent에 `https://<도메인>/mcp`와 `Authorization: Bearer <발급 토큰>`을 등록하고 도구 목록·초안 작성·Web 사람 승인 경계를 실제 호출로 검증한다.
+
+## 코드 업데이트 배포
+
+1. EC2의 현재 체크아웃과 `git status`를 확인한 뒤 `dokyeong-merge`의 최신 커밋을 가져온다. 서버에서 직접 수정한 파일이 있다면 먼저 보존한다.
+2. 저장소 루트에서 `docker compose -f compose.aws.yml up -d --build`를 실행한다. `market-data` 볼륨은 유지한다.
+3. 비로그인 브라우저에서 `https://gomja-market.store/`가 서비스 소개 화면으로 열리는지 확인한다. `/login`은 발급 계정용 로그인 화면이며, `/api/me`는 비로그인 상태에서 401이어야 한다.
+
+AWS IAM 콘솔 비밀번호나 액세스 키를 애플리케이션 `.env`에 넣지 않는다. 앱 `.env`에는 도메인과 `AGENT_MARKET_WEB_SECRET` 등 Compose에서 요구하는 설정만 둔다. `.env`와 자격 증명 CSV는 Git 추적 대상에서 제외한다.
 
 ## 운영 확인
 

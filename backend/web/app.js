@@ -156,7 +156,10 @@ export function createWebServer(options = {}) {
         if (session) { response.writeHead(302, { Location: '/' }); response.end(); return; }
         await serveFile(response, 'login.html', 'text/html; charset=utf-8'); return;
       }
-      if (path === '/' || path === '/index.html') {
+      if (path === '/') {
+        await serveFile(response, session ? 'index.html' : 'landing.html', 'text/html; charset=utf-8'); return;
+      }
+      if (path === '/index.html') {
         if (!session) { response.writeHead(302, { Location: '/login' }); response.end(); return; }
         await serveFile(response, 'index.html', 'text/html; charset=utf-8'); return;
       }
@@ -166,6 +169,7 @@ export function createWebServer(options = {}) {
       }
       if (/^\/src\/[a-z0-9-]+\.js$/.test(path)) { await serveFile(response, path.slice(1), 'text/javascript; charset=utf-8'); return; }
       if (path === '/src/styles.css') { await serveFile(response, 'src/styles.css', 'text/css; charset=utf-8'); return; }
+      if (path === '/src/landing.css') { await serveFile(response, 'src/landing.css', 'text/css; charset=utf-8'); return; }
       error(response, 404, 'NOT_FOUND', '페이지를 찾을 수 없습니다.');
     } catch (cause) {
       if (cause instanceof SyntaxError) error(response, 400, 'INVALID_JSON', 'JSON 요청을 확인해 주세요.');

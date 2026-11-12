@@ -33,7 +33,14 @@ async function withServers(run) {
 test('Web login creates a server session and forwards only its verified identity to strict API', async () => {
   await withServers(async ({ apiUrl, webUrl, web }) => {
     const user = await provisionWebUser(web.store, { loginName: 'Buyer_One', nickname: '구매자', password: 'this-is-a-strong-password' });
-    assert.equal((await fetch(`${webUrl}/`)).url, `${webUrl}/login`);
+    const landing = await fetch(`${webUrl}/`);
+    assert.equal(landing.status, 200);
+    const landingHtml = await landing.text();
+    assert.match(landingHtml, /찾는 조건을 말하면/);
+    assert.match(landingHtml, /href="\/login"/);
+    assert.doesNotMatch(landingHtml, /src\/app\.js/);
+    assert.equal((await fetch(`${webUrl}/src/landing.css`)).status, 200);
+    assert.equal((await fetch(`${webUrl}/index.html`)).url, `${webUrl}/login`);
     assert.equal((await fetch(`${webUrl}/api/me`)).status, 401);
     assert.equal((await fetch(`${apiUrl}/api/me`)).status, 401);
 
@@ -53,6 +60,7 @@ test('Web login creates a server session and forwards only its verified identity
     assert.ok(!web.store.db.prepare('SELECT session_hash FROM web_sessions').get().session_hash.includes(token));
     const { csrfToken, userId } = await login.json();
     assert.equal(userId, user.id);
+    assert.match(await (await fetch(`${webUrl}/`, { headers: { Cookie: cookie } })).text(), /src\/app\.js/);
 
     const me = await fetch(`${webUrl}/api/me`, { headers: { Cookie: cookie, 'X-User-Id': '00000000-0000-4000-8000-000000000099',
       'X-Web-Secret': 'spoofed', Authorization: 'Bearer spoofed' } });

@@ -6,3 +6,6 @@ dist/
 *.sqlite-shm
 *.sqlite-wal
 .env
+.env.*
+!.env*.example
+*credentials*.csv
