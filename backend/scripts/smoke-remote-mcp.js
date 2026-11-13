@@ -60,7 +60,7 @@ try {
   }));
   connected = true;
   const tools = (await client.listTools()).tools.map(tool => tool.name);
-  assert.ok(tools.includes('whoami') && tools.includes('get_market_guide'));
+  assert.ok(tools.includes('whoami') && tools.includes('get_market_guide') && tools.includes('review_listing_details'));
   assert.ok(!tools.includes('create_listing_draft'), '읽기 전용 토큰에 쓰기 도구가 노출됐습니다.');
 
   const identity = await client.callTool({ name: 'whoami', arguments: {} });
@@ -96,6 +96,7 @@ try {
     try {
       store.db.prepare('DELETE FROM agent_tokens WHERE user_id = ?').run(testUserId);
       store.db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(testUserId);
+      store.db.prepare('DELETE FROM web_recovery_codes WHERE user_id = ?').run(testUserId);
       store.db.prepare('DELETE FROM web_credentials WHERE user_id = ?').run(testUserId);
       store.db.prepare('DELETE FROM users WHERE id = ?').run(testUserId);
       store.db.exec('COMMIT');

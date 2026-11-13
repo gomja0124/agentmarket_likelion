@@ -349,6 +349,10 @@ function attach() {
       captureForms(); render(); root.querySelector('.advice-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (error) { showError(error); }
   });
+  root.querySelector('#sell-form')?.addEventListener('input', () => {
+    state.listingAdvice = null;
+    root.querySelector('.advice-box')?.remove();
+  });
   root.querySelectorAll('[data-switch-account]').forEach(button => button.addEventListener('click', async () => {
     if (button.dataset.switchAccount === currentRole()) return;
     try { captureForms(); state.accountDrafts[currentRole()] = { listingDraft: state.listingDraft, purchaseDraft: state.purchaseDraft,
@@ -368,7 +372,10 @@ function attach() {
     if (history.state?.page === 'detail' && history.length > 1) history.back();
     else navigate(button.dataset.fallback || 'browse');
   }));
-  root.querySelectorAll('[data-new-listing]').forEach(button => button.addEventListener('click', () => { captureForms(); navigate('sell', { listingDraft: null }); }));
+  root.querySelectorAll('[data-new-listing]').forEach(button => button.addEventListener('click', () => {
+    captureForms(); state.listingAdvice = null; state.adviceIncludeSamples = false;
+    navigate('sell', { listingDraft: null });
+  }));
   root.querySelectorAll('[data-category]').forEach(button => button.addEventListener('click', () => { state.category = button.dataset.category; render(); }));
   root.querySelector('#browse-search')?.addEventListener('input', event => { const start = event.target.selectionStart; state.searchTerm = event.target.value; render(); const next = root.querySelector('#browse-search'); next.focus(); next.setSelectionRange(start, start); });
   root.querySelectorAll('[data-detail]').forEach(button => button.addEventListener('click', async () => { try { const selected = await api.getListing(button.dataset.detail); navigate('detail', { selected }); } catch (error) { showError(error); } }));
@@ -416,9 +423,15 @@ function attach() {
     catch (error) { showError(error); }
   });
   root.querySelector('#search-button')?.addEventListener('click', async () => { try { const confirmed = await api.confirmPurchaseRequest(state.purchaseDraft.id); const results = await api.search(confirmed.id, state.showSamples); await refresh(); navigate('results', { purchaseDraft: confirmed, results }); } catch (error) { showError(error); } });
-  root.querySelectorAll('[data-edit-draft]').forEach(button => button.addEventListener('click', () => { const draft = state.drafts.find(item => item.id === button.dataset.editDraft); navigate('sell', { listingDraft: draft }); }));
+  root.querySelectorAll('[data-edit-draft]').forEach(button => button.addEventListener('click', () => {
+    const draft = state.drafts.find(item => item.id === button.dataset.editDraft);
+    state.listingAdvice = null; navigate('sell', { listingDraft: draft });
+  }));
   root.querySelectorAll('[data-edit-request]').forEach(button => button.addEventListener('click', () => { const draft = state.purchaseRequests.find(item => item.id === button.dataset.editRequest); navigate('buy', { purchaseDraft: draft }); }));
-  root.querySelectorAll('[data-revise]').forEach(button => button.addEventListener('click', async () => { try { const draft = await api.startListingRevision(button.dataset.revise); await refresh(); navigate('sell', { listingDraft: draft }); } catch (error) { showError(error); } }));
+  root.querySelectorAll('[data-revise]').forEach(button => button.addEventListener('click', async () => { try {
+    const draft = await api.startListingRevision(button.dataset.revise);
+    state.listingAdvice = null; await refresh(); navigate('sell', { listingDraft: draft });
+  } catch (error) { showError(error); } }));
   root.querySelectorAll('[data-verify-listing]').forEach(button => button.addEventListener('click', () => {
     const item = state.myListings.find(value => value.id === button.dataset.verifyListing);
     navigate('verify', { verificationListing: item });
