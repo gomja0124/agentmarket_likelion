@@ -93,6 +93,7 @@ function connectionFromRow(row) {
   if (!row) return undefined;
   return {
     id: row.id, publicDemandId: row.public_demand_id, listingId: row.listing_id,
+    listingTitle: row.listing_title ?? null,
     sellerId: row.seller_id, buyerId: row.buyer_id, status: row.status,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
@@ -427,10 +428,10 @@ export class Store {
     }
   }
   getConnectionRequest(id) {
-    return connectionFromRow(this.db.prepare('SELECT * FROM connection_requests WHERE id = ?').get(id));
+    return connectionFromRow(this.db.prepare('SELECT c.*, l.title AS listing_title FROM connection_requests c JOIN listings l ON l.id = c.listing_id WHERE c.id = ?').get(id));
   }
   getConnectionForPair(publicDemandId, listingId) {
-    return connectionFromRow(this.db.prepare('SELECT * FROM connection_requests WHERE public_demand_id = ? AND listing_id = ?')
+    return connectionFromRow(this.db.prepare('SELECT c.*, l.title AS listing_title FROM connection_requests c JOIN listings l ON l.id = c.listing_id WHERE c.public_demand_id = ? AND c.listing_id = ?')
       .get(publicDemandId, listingId));
   }
   createConnectionRequest({ id, demand, listing, now }) {
@@ -445,7 +446,7 @@ export class Store {
     return this.getConnectionRequest(id);
   }
   listConnectionRequests(userId) {
-    return this.db.prepare('SELECT * FROM connection_requests WHERE buyer_id = ? OR seller_id = ? ORDER BY created_at DESC')
+    return this.db.prepare('SELECT c.*, l.title AS listing_title FROM connection_requests c JOIN listings l ON l.id = c.listing_id WHERE c.buyer_id = ? OR c.seller_id = ? ORDER BY c.created_at DESC')
       .all(userId, userId).map(connectionFromRow);
   }
   listNotifications(userId) {

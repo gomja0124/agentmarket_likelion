@@ -59,6 +59,7 @@ test('Step 2 keeps demand private until buyer approval, then permits only matche
     assert.equal((await call(`/api/listings/${listing.id}/public-demands`, outsider)).status, 403);
     const connection = (await call('/api/connection-requests', seller, 'POST', { publicDemandId: demand.id, listingId: listing.id })).value;
     assert.equal(connection.status, 'PENDING');
+    assert.equal(connection.listingTitle, 'iPad Air 5 256GB');
     assert.equal(connection.buyerId, undefined);
     assert.equal((await call('/api/connection-requests', seller, 'POST', { publicDemandId: demand.id, listingId: listing.id })).status, 409);
     assert.equal((await call(`/api/connection-requests/${connection.id}/accept`, seller, 'POST')).status, 403);
