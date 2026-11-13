@@ -1,5 +1,6 @@
 export const DEMO_USER_ID = '00000000-0000-4000-8000-000000000001';
 export const SEED_SELLER_ID = '00000000-0000-4000-8000-000000000002';
+export const PRESENTATION_SELLER_ID = '00000000-0000-4000-8000-000000000003';
 
 const products = [
   ['PHONE', 'Apple', 'iPhone 15 Pro', 256, 'LIKE_NEW', 920000, '내추럴 티타늄', '충전 케이블, 박스'],

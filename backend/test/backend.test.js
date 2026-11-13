@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApiServer } from '../server/app.js';
 import { RULE_VERSION } from '../server/matching.js';
+import { PRESENTATION_SELLER_ID } from '../server/seed.js';
 
 const demoUser = '00000000-0000-4000-8000-000000000001';
 const otherUser = '00000000-0000-4000-8000-000000000099';
@@ -60,6 +61,20 @@ test('strict service shows real seller inventory by default and removes sold ite
     assert.equal(published.value.isSample, false);
     const real = await call(base, '/api/listings?status=ACTIVE', asSeller);
     assert.deepEqual(real.value.map(item => item.id), [published.value.id]);
+    const presentationSeller = { userId: PRESENTATION_SELLER_ID, webSecret };
+    const demoDraft = await call(base, '/api/listing-drafts', { ...presentationSeller, method: 'POST',
+      body: { category: 'TABLET', model: 'Presentation iPad', priceKrw: 300000 } });
+    const demoPublished = await call(base, `/api/listing-drafts/${demoDraft.value.id}/publish`, { ...presentationSeller, method: 'POST' });
+    assert.equal(demoPublished.value.isSample, true);
+    assert.deepEqual((await call(base, '/api/listings?status=ACTIVE', asSeller)).value.map(item => item.id), [published.value.id]);
+    assert.equal((await call(base, '/api/listings?status=ACTIVE&includeSamples=true', asSeller)).value.length, 14);
+    const demoBuyerRequest = await call(base, '/api/purchase-requests', { ...asSeller, method: 'POST',
+      body: { category: 'TABLET', modelQuery: 'Presentation iPad', maxBudgetKrw: 400000 } });
+    await call(base, `/api/purchase-requests/${demoBuyerRequest.value.id}/confirm`, { ...asSeller, method: 'POST' });
+    const demoDemand = await call(base, `/api/purchase-requests/${demoBuyerRequest.value.id}/public-demand`, { ...asSeller, method: 'POST' });
+    assert.equal((await call(base, `/api/public-demands/${demoDemand.value.id}/publish`, { ...asSeller, method: 'POST' })).status, 200);
+    assert.ok((await call(base, '/api/notifications/mine', presentationSeller)).value.some(item =>
+      item.type === 'NEW_MATCH' && item.listingId === demoPublished.value.id));
 
     const buyer = await call(base, '/api/purchase-requests', { ...asSeller, method: 'POST',
       body: { category: 'PHONE', maxBudgetKrw: 900000, modelQuery: 'iPhone 15 Pro' } });

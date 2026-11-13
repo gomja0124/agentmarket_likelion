@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { DEMO_USER_ID, SEED_SELLER_ID, seedListings } from './seed.js';
+import { DEMO_USER_ID, PRESENTATION_SELLER_ID, SEED_SELLER_ID, seedListings } from './seed.js';
 import { matchDemand } from './reverse-market.js';
 
 const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql', './migrations/003_reverse_market.sql', './migrations/004_web_auth.sql']
@@ -37,7 +37,7 @@ function listingFromRow(row) {
     description: row.description, category: row.category, brand: row.brand, model: row.model,
     storageGb: row.storage_gb, condition: row.condition, accessories: row.accessories,
     priceKrw: row.price_krw, images: parseJson(row.images_json), missingFields: parseJson(row.missing_fields_json),
-    isSample: row.seller_id === SEED_SELLER_ID,
+    isSample: [SEED_SELLER_ID, PRESENTATION_SELLER_ID].includes(row.seller_id),
     status: row.status, soldAt: row.sold_at ?? null,
     publishedAt: row.published_at, createdAt: row.created_at, updatedAt: row.updated_at,
   };
@@ -131,6 +131,7 @@ export class Store {
     const now = new Date().toISOString();
     insert.run(DEMO_USER_ID, '데모 사용자', now);
     insert.run(SEED_SELLER_ID, '샘플 판매자', now);
+    insert.run(PRESENTATION_SELLER_ID, '발표용 판매자', now);
   }
 
   ensureUser(userId) {
@@ -207,9 +208,9 @@ export class Store {
   listListings({ status = 'ACTIVE', query = '', includeSamples = true } = {}) {
     const search = `%${query.trim().toLowerCase()}%`;
     return this.db.prepare(`SELECT * FROM listings WHERE status = ?
-      AND (? = 1 OR seller_id <> ?)
+      AND (? = 1 OR seller_id NOT IN (?, ?))
       AND (? = '' OR lower(coalesce(title, '') || ' ' || coalesce(model, '') || ' ' || coalesce(brand, '')) LIKE ?)
-      ORDER BY created_at DESC, id`).all(status, includeSamples ? 1 : 0, SEED_SELLER_ID, query.trim(), search).map(listingFromRow);
+      ORDER BY created_at DESC, id`).all(status, includeSamples ? 1 : 0, SEED_SELLER_ID, PRESENTATION_SELLER_ID, query.trim(), search).map(listingFromRow);
   }
 
   getListing(id) { return listingFromRow(this.db.prepare('SELECT * FROM listings WHERE id = ?').get(id)); }
@@ -308,9 +309,9 @@ export class Store {
     return this.getPurchaseRequest(id);
   }
 
-  activeListingsForSearch({ includeSamples = true } = {}) {
-    return this.db.prepare("SELECT * FROM listings WHERE status='ACTIVE' AND (? = 1 OR seller_id <> ?) ORDER BY id")
-      .all(includeSamples ? 1 : 0, SEED_SELLER_ID).map(listingFromRow);
+  activeListingsForSearch({ includeSamples = true, includePresentation = false } = {}) {
+    return this.db.prepare("SELECT * FROM listings WHERE status='ACTIVE' AND (? = 1 OR seller_id <> ?) AND (? = 1 OR seller_id <> ?) ORDER BY id")
+      .all(includeSamples ? 1 : 0, SEED_SELLER_ID, includeSamples || includePresentation ? 1 : 0, PRESENTATION_SELLER_ID).map(listingFromRow);
   }
 
   insertSearchResults(results) {
@@ -410,7 +411,7 @@ export class Store {
   }
   notifyMatchesForDemand(demand, now) {
     if (demand.status !== 'ACTIVE') return;
-    for (const listing of this.activeListingsForSearch({ includeSamples: false })) {
+    for (const listing of this.activeListingsForSearch({ includeSamples: false, includePresentation: true })) {
       if (listing.sellerId === demand.buyerId) continue;
       if (matchDemand(listing, demand).matchStatus !== 'MATCH') continue;
       this.addNotification({ userId: demand.buyerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });

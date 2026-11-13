@@ -248,7 +248,7 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
 
   register('read', 'browse_listings', {
     title: '공개 매물 둘러보기',
-    description: '구매 조건 없이 실제 판매자가 등록한 ACTIVE 매물을 조회한다. 시연용 12개는 기본 제외하며 includeSamples=true에서만 표시한다. 조건 기반 매칭은 search_listings를 쓴다.',
+    description: '구매 조건 없이 실제 판매자가 등록한 ACTIVE 매물을 조회한다. 시연용 매물은 기본 제외하며 includeSamples=true에서만 표시한다. 조건 기반 매칭은 search_listings를 쓴다.',
     inputSchema: { query: z.string().max(200).optional().describe('모델명 등 검색어'),
       includeSamples: z.boolean().optional().describe('시연용 매물도 포함할 때만 true') },
   }, async ({ query, includeSamples }) => ({ listings: await api.listListings(query || '', includeSamples === true) }));

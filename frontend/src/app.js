@@ -454,7 +454,7 @@ try {
   }
   if (!window.AGENT_MARKET_WEB_AUTH || state.webSession?.authenticated) {
     state.demoAuth = (await api.authMode()) === 'demo';
-    state.showSamples = state.demoAuth;
+    state.showSamples = state.demoAuth || new URLSearchParams(location.search).get('samples') === '1';
     state.role = localStorage.getItem('agent-market-view-role') === 'seller' ? 'seller' : 'buyer';
     await refresh();
     state.page = ({ '#browse': 'browse', '#sell': 'sell', '#buy': 'buy', '#mine': 'mine', '#demand': 'demand', '#agent': 'agent' })[location.hash] || 'home';
