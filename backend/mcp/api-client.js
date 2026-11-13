@@ -87,6 +87,7 @@ export class AgentMarketApi {
   draftFromListing(listingId, fields, requestId) { return this.post(`/api/listings/${encodeURIComponent(listingId)}/drafts`, fields, requestId); }
   createPurchaseRequest(fields, requestId) { return this.post('/api/purchase-requests', fields, requestId); }
   updatePurchaseRequest(id, fields, requestId) { return this.patch(`/api/purchase-requests/${encodeURIComponent(id)}`, fields, requestId); }
+  confirmPurchaseRequest(id, approval, requestId) { return this.post(`/api/purchase-requests/${encodeURIComponent(id)}/confirm`, approval, requestId); }
   search(purchaseRequestId, requestId, includeSamples = false) { return this.post(`/api/purchase-requests/${encodeURIComponent(purchaseRequestId)}/search${includeSamples ? '?includeSamples=true' : ''}`, {}, requestId); }
   myPublicDemands() { return this.get('/api/public-demands/mine'); }
   createPublicDemandDraft(purchaseRequestId, requestId) {

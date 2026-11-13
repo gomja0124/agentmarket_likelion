@@ -17,7 +17,7 @@ import { listingQuestions, nextActionFor } from '../mcp/server.js';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const demoUser = '00000000-0000-4000-8000-000000000001';
 
-const SPEC_TOOLS = ['get_category_schema', 'create_listing_draft', 'update_listing_draft', 'create_purchase_request_draft', 'update_purchase_request_draft', 'search_listings', 'get_listing'];
+const SPEC_TOOLS = ['get_category_schema', 'create_listing_draft', 'update_listing_draft', 'create_purchase_request_draft', 'update_purchase_request_draft', 'confirm_purchase_request', 'search_listings', 'get_listing'];
 const HELPER_TOOLS = ['whoami', 'get_market_guide', 'browse_listings', 'review_listing_details', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests'];
 
 async function withMcp(run, { userId = demoUser, token = '', apiOptions = {}, step2 = false } = {}) {
@@ -57,11 +57,11 @@ async function withMcp(run, { userId = demoUser, token = '', apiOptions = {}, st
   }
 }
 
-test('tool set matches 03 MCP Tools Spec and exposes no publish/confirm', async () => {
+test('tool set exposes scoped purchase confirmation but no publish or connection action', async () => {
   await withMcp(async ({ call, client }) => {
     const names = (await client.listTools()).tools.map(t => t.name).sort();
     assert.deepEqual(names, [...SPEC_TOOLS, ...HELPER_TOOLS].sort());
-    assert.ok(!names.some(n => /publish|confirm|deactivate|token/.test(n)), '사람 전용 행동은 tool로 노출되지 않는다');
+    assert.ok(!names.some(n => /publish|deactivate|token|connection/.test(n)), '거래·게시 행동은 tool로 노출되지 않는다');
     assert.match(client.getInstructions() || '', /게시.*사람/);
     const guide = await call('get_market_guide');
     assert.equal(guide.value.apiHealth.step, 1);
@@ -195,7 +195,7 @@ test('AC-04 search is refused while DRAFT; after human confirmation it runs', as
     const early = await call('search_listings', { purchaseRequestId: id });
     assert.equal(early.isError, true);
     assert.equal(early.value.code, 'INVALID_STATE');
-    assert.match(early.value.suggestedAction, /Web/);
+    assert.match(early.value.suggestedAction, /승인/);
 
     const confirmed = await human('POST', `/api/purchase-requests/${id}/confirm`);
     assert.equal(confirmed.value.status, 'CONFIRMED');

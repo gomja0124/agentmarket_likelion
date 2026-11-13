@@ -78,6 +78,7 @@ test('tool list follows token scopes; backend still enforces them', async () => 
     const ro = await connect(readOnly.token);
     const roTools = (await ro.client.listTools()).tools.map(t => t.name).sort();
     assert.deepEqual(roTools, ['browse_listings', 'get_category_schema', 'get_listing', 'get_market_guide', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'review_listing_details', 'whoami']);
+    assert.ok(!roTools.includes('confirm_purchase_request'));
     const me = await ro.call('whoami');
     assert.equal(me.value.userId, demoUser);
     assert.deepEqual(me.value.scopes, ['read']);
@@ -97,6 +98,64 @@ test('tool list follows token scopes; backend still enforces them', async () => 
     assert.equal(draft.value.humanApprovalRequired, true);
     assert.match(draft.value.nextAction, /https:\/\/web\.example/);
     await s.client.close();
+  });
+});
+
+test('Claude-style natural language request can be confirmed and matched through scoped remote MCP', async () => {
+  await withStack(async ({ issue, connect, human, apiUrl }) => {
+    const listingDraft = await human('POST', '/api/listing-drafts', {
+      category: 'PHONE', model: 'Galaxy S23', storageGb: 256, condition: 'GOOD',
+      priceKrw: 480000, description: '발표 검증용 Galaxy S23 256GB',
+    });
+    assert.equal(listingDraft.status, 201);
+    const listing = await human('POST', `/api/listing-drafts/${listingDraft.value.id}/publish`);
+    assert.equal(listing.status, 201);
+
+    const token = await issue('buyer-chat', ['purchase:write', 'purchase:confirm', 'search']);
+    const buyer = await connect(token.token);
+    const names = (await buyer.client.listTools()).tools.map(tool => tool.name);
+    assert.ok(names.includes('create_purchase_request_draft'));
+    assert.ok(names.includes('confirm_purchase_request'));
+    assert.ok(names.includes('search_listings'));
+
+    const userText = '핸드폰 Galaxy S23 256GB 상태 좋음 480000원 이하 찾아줘';
+    const draft = await buyer.call('create_purchase_request_draft', { naturalLanguageRequest: userText });
+    assert.equal(draft.isError, false);
+    assert.deepEqual(draft.value.structuredConditions, {
+      category: 'PHONE', modelQuery: 'Galaxy S23', maxBudgetKrw: 480000,
+      storageGb: 256, conditionPreferences: ['GOOD'],
+    });
+    const purchaseRequestId = draft.value.requestId;
+    const expectedUpdatedAt = draft.value.purchaseRequest.updatedAt;
+
+    const premature = await buyer.call('search_listings', { purchaseRequestId });
+    assert.equal(premature.value.code, 'INVALID_STATE');
+    const stale = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt: '2020-01-01T00:00:00.000Z', userSearchRequest: userText,
+    });
+    assert.equal(stale.value.code, 'INVALID_STATE');
+    const noIntent = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt, userSearchRequest: 'Galaxy S23 256GB',
+    });
+    assert.equal(noIntent.value.code, 'VALIDATION_ERROR');
+    const negatedIntent = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt, userSearchRequest: '아직 검색해주지 마',
+    });
+    assert.equal(negatedIntent.value.code, 'VALIDATION_ERROR');
+
+    const confirmed = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt, userSearchRequest: userText,
+    });
+    assert.equal(confirmed.isError, false);
+    assert.equal(confirmed.value.status, 'CONFIRMED');
+    const search = await buyer.call('search_listings', { purchaseRequestId });
+    assert.equal(search.isError, false);
+    assert.ok(search.value.results.some(result => result.listing.id === listing.value.id && result.matchStatus === 'MATCH'));
+    const stored = await fetch(`${apiUrl}/api/purchase-requests/${purchaseRequestId}`, {
+      headers: { Authorization: `Bearer ${token.token}` },
+    });
+    assert.equal((await stored.json()).status, 'CONFIRMED');
+    await buyer.client.close();
   });
 });
 

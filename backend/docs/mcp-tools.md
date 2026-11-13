@@ -26,6 +26,7 @@ Agent는 **사람이 Web에서 발급한 토큰**으로만 접속한다. 토큰�
 | `read` (항상 포함) | 조회·검색 | whoami, get_market_guide, get_category_schema, browse_listings, get_listing, list_my_* |
 | `listing:write` | 판매글 초안 | create_listing_draft, update_listing_draft |
 | `purchase:write` | 구매 조건 초안 | create_purchase_request_draft, update_purchase_request_draft |
+| `purchase:confirm` | 구매자가 대화에서 명시적으로 요청한 조건 확정 | confirm_purchase_request |
 | `search` | 확정된 조건으로 검색·매칭 | search_listings |
 
 토큰 관리 API (사람 전용, Web에서 호출)
@@ -118,7 +119,7 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 
 이름과 입출력은 **03 MCP Tools Spec — Step 1**을 따른다. 읽기 tool은 승인 없이 호출할 수 있다. 쓰기 tool은 전부 멱등하며 `requestId`(UUID)를 넘기면 재시도해도 중복 생성되지 않는다. 생략하면 어댑터가 호출마다 새 키를 만든다. 스펙의 "authenticated userId"는 tool 인자가 아니라 토큰 바인딩에서 온다. Agent가 다른 사용자를 지정할 수 없다.
 
-### 스펙 tool (7)
+### 구매 검색 tool
 
 | tool | scope | 입력 | 출력 |
 | --- | --- | --- | --- |
@@ -127,10 +128,17 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 | `update_listing_draft` | listing:write | `draftId`, `patch{...}` | 위와 같음 + `updatedDraft` |
 | `create_purchase_request_draft` | purchase:write | `category?`, `naturalLanguageRequest?`, `knownConstraints{category, modelQuery, maxBudgetKrw, storageGb, conditionPreferences}` | `requestId`, `structuredConditions`, `missingFields`, `nextQuestions`, `readyForConfirmation`, `humanApprovalRequired`, `nextAction`, `purchaseRequest` |
 | `update_purchase_request_draft` | purchase:write | `requestId`, `patch{...}` | 위와 같음 + `updatedRequest` |
+| `confirm_purchase_request` | purchase:confirm | `purchaseRequestId`, `expectedUpdatedAt`, `userSearchRequest` | 구매 조건 확정. 최신 초안과 명시적인 검색 요청이 필요함 |
 | `search_listings` | search | `purchaseRequestId`, `includeSamples?` | `summary{total, MATCH, NEEDS_CONFIRMATION, EXCLUDED, ruleVersion}`, `results: SearchResult[]` (각 후보에 `listing`, `matchedFields`, `unmetFields`, `missingFields`) |
 | `get_listing` | read | `listingId` | `Listing` (구조화 필드 + `images`) |
 
 `nextQuestions`는 비어 있는 항목에 대한 질문을 스펙 우선순위로 만든다. 판매: category → model → priceKrw → storageGb → condition → accessories. 구매: category → maxBudgetKrw → modelQuery → storageGb. 백엔드는 값을 추정하지 않으므로 Agent가 사용자에게 묻고 `update_*`로 채운다.
+
+### Claude에서 구매 검색 완료
+
+구매자 계정의 토큰에 `read`, `purchase:write`, `purchase:confirm`, `search`가 있어야 한다. 기존 조회 전용 토큰에는 새 도구가 나타나지 않는다. 예시 요청: “시연용도 포함해서 Galaxy S23 256GB, 상태 좋음, 48만 원 이하를 찾아줘.” Claude는 비공개 조건 초안을 만들고, 최신 `updatedAt`과 사용자의 검색 요청 문장으로 `confirm_purchase_request`를 호출한 뒤 `search_listings(includeSamples=true)`를 호출한다. 시연용 포함은 사용자가 명시한 경우에만 허용한다.
+
+초안에 예산·기기 종류가 없거나 요청이 모호하면 먼저 질문한다. 조건이 바뀌면 이전 `updatedAt`으로 확정할 수 없다. 서버는 전달된 문장에 검색 의도가 있는지 검사하지만, 그 문장이 실제 사용자 발화인지 독립적으로 확인할 수는 없다. 토큰은 신뢰하는 개인 Agent에만 연결하고 필요할 때 폐기한다. 판매글 게시·구해요 공개·연결 수락은 여전히 Web 전용이다.
 
 ### 보조 tool (7, 모두 read)
 
@@ -144,7 +152,7 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 | `list_my_listings` | 내 매물 (ACTIVE/INACTIVE) |
 | `list_my_purchase_requests` | 내 구매 조건 + `nextAction` |
 
-tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성화(`deactivate`), 재활성화(`reactivate`), 판매 완료(`sold`), 토큰 발급·폐기. 서버도 Agent면 403으로 거부한다. Step 2 조회·초안 도구는 아래 플래그를 켠 경우에만 제공한다.
+tool로 노출하지 않는 것: 판매글 게시(`publish`), 공개 구해요 승인, 연결 요청·수락, 비활성화(`deactivate`), 재활성화(`reactivate`), 판매 완료(`sold`), 토큰 발급·폐기. 구매 조건 확정만 별도 `purchase:confirm` 권한으로 허용한다. Step 2 조회·초안 도구는 아래 플래그를 켠 경우에만 제공한다.
 
 ## 승인 지점 (스펙 3절)
 
@@ -152,7 +160,7 @@ tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성
 | --- | --- | --- | --- |
 | Agent 연결 | 사용자 | Web (토큰 발급) | 토큰 없이는 연결 자체가 안 됨 |
 | 판매글 게시 | 판매자 | Web → `POST .../publish` | `publishable: true`, `humanApprovalRequired: true`, `nextAction`에 게시 안내 |
-| 구매 조건 확정·검색 | 구매자 | Web → `POST .../confirm` 후 검색 | `readyForConfirmation: true`, `nextAction`에 확정 안내. 확정 전 `search_listings`는 `INVALID_STATE` |
+| 구매 조건 확정·검색 | 구매자 | Web에서 직접 확정하거나, Agent 대화에서 명시적으로 검색 요청 → 권한 있는 MCP 도구가 확정·검색 | `readyForConfirmation: true`. Agent는 최신 `updatedAt`과 실제 사용자 요청 문장을 제출. 확정 전 `search_listings`는 `INVALID_STATE` |
 | 권한 확대 | 사용자 | Web (새 토큰) | 없는 scope의 tool은 목록에 없음. `whoami`로 현재 권한 확인 |
 | 연결 해제 | 사용자 | Web (토큰 폐기) | 다음 요청부터 401 |
 
@@ -166,10 +174,10 @@ tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성
 {
   "success": false,
   "code": "INVALID_STATE",
-  "message": "구매자가 Web에서 조건을 확정한 뒤 검색할 수 있습니다.",
+  "message": "구매자가 Web 또는 Agent 대화에서 조건을 확정한 뒤 검색할 수 있습니다.",
   "details": {},
   "retryable": false,
-  "suggestedAction": "현재 상태에서는 불가능합니다. 사용자가 Web에서 확정·게시했는지 확인한 뒤 다시 시도하세요."
+  "suggestedAction": "현재 상태에서는 불가능합니다. 구매 조건의 최신 상태와 사용자 승인 여부를 확인한 뒤 다시 시도하세요."
 }
 ```
 

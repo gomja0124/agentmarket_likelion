@@ -15,7 +15,7 @@ import { DEMO_USER_ID } from './seed.js';
  * - demo   (기본): 토큰이 있으면 검증하고, 없으면 예전처럼 X-User-Id / X-Actor-Type 헤더를 그대로 믿는다. 로컬 개발용.
  * - strict        : AGENT는 토큰 필수. HUMAN은 X-Web-Secret이 AGENT_MARKET_WEB_SECRET과 일치해야 한다. 배포용.
  */
-export const SCOPES = ['read', 'listing:write', 'purchase:write', 'search'];
+export const SCOPES = ['read', 'listing:write', 'purchase:write', 'purchase:confirm', 'search'];
 export const DEFAULT_SCOPES = ['read'];
 export const TOKEN_PREFIX = 'amk_';
 
@@ -84,6 +84,7 @@ export function authenticate(request, store, config, now = new Date().toISOStrin
 export function requiredScope(method, path) {
   if (method === 'GET') return 'read';
   if (path.endsWith('/search')) return 'search';
+  if (path.endsWith('/confirm') && path.startsWith('/api/purchase-requests/')) return 'purchase:confirm';
   if (path.startsWith('/api/listing-drafts') || /^\/api\/listings\/[^/]+\/drafts$/.test(path)) return 'listing:write';
   if (path.startsWith('/api/purchase-requests')) return 'purchase:write';
   if (path.startsWith('/api/public-demands')) return 'purchase:write';

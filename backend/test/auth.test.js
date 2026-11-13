@@ -82,6 +82,8 @@ test('token scopes gate write routes and are enforced server-side', async () => 
 
     const request = await call(base, '/api/purchase-requests', { method: 'POST', headers: { ...bearer(writer), 'Idempotency-Key': 'k4' }, body: { category: 'PHONE', maxBudgetKrw: 500000 } });
     assert.equal(request.status, 201);
+    const confirmDenied = await call(base, `/api/purchase-requests/${request.value.id}/confirm`, { method: 'POST', headers: { ...bearer(writer), 'Idempotency-Key': 'k4-confirm' }, body: { expectedUpdatedAt: request.value.updatedAt, userSearchRequest: '이 조건으로 검색해줘' } });
+    assert.equal(confirmDenied.status, 403, '초안·검색 권한만으로는 조건을 확정할 수 없다');
     const searchDenied = await call(base, `/api/purchase-requests/${request.value.id}/search`, { method: 'POST', headers: { ...bearer(readOnly), 'Idempotency-Key': 'k5' } });
     assert.equal(searchDenied.status, 403);
   });
@@ -130,6 +132,7 @@ test('route to scope mapping', () => {
   assert.equal(requiredScope('PATCH', '/api/listing-drafts/abc'), 'listing:write');
   assert.equal(requiredScope('POST', '/api/listings/abc/drafts'), 'listing:write');
   assert.equal(requiredScope('POST', '/api/purchase-requests'), 'purchase:write');
+  assert.equal(requiredScope('POST', '/api/purchase-requests/abc/confirm'), 'purchase:confirm');
   assert.equal(requiredScope('POST', '/api/purchase-requests/abc/search'), 'search');
   assert.equal(hashToken('a').length, 64);
 });

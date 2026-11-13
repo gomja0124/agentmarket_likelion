@@ -375,12 +375,25 @@ export function createApiServer({
         send(response, 200, updated); return;
       }
       if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'purchase-requests' && segments[3] === 'confirm') {
-        humanOnly(context, '구매 조건을 확정');
         const requestId = segments[2];
         const purchaseRequest = store.getPurchaseRequest(requestId);
         if (!purchaseRequest) throw notFound('구매 조건을 찾을 수 없습니다.');
         requireOwner(purchaseRequest.buyerId, context);
         if (purchaseRequest.status !== 'DRAFT') throw invalidState('DRAFT 상태의 구매 조건만 확정할 수 있습니다.');
+        if (context.actorType === 'AGENT') {
+          if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            throw validationError('구매자의 검색 요청과 최신 조건을 전달해 주세요.');
+          }
+          if (typeof body.expectedUpdatedAt !== 'string' || body.expectedUpdatedAt !== purchaseRequest.updatedAt) {
+            throw invalidState('구매 조건이 변경되었거나 최신 초안이 아닙니다. 다시 조회해 사용자에게 확인받으세요.');
+          }
+          const userSearchRequest = body.userSearchRequest;
+          if (typeof userSearchRequest !== 'string' || userSearchRequest.length > 500 ||
+              /(?:하지\s*마|하지\s*않|주지\s*마|말아|말고|안\s*해|보류)/.test(userSearchRequest) ||
+              !/(찾아\s*(줘|주세요|봐)|검색\s*(해|해줘|해주세요|하자)|매칭\s*(해|해줘)|\bsearch\s+(for|now)\b|\bfind\s+me\b)/i.test(userSearchRequest)) {
+            throw validationError('구매자가 대화에서 명시적으로 검색을 요청한 문장을 전달해 주세요.', { field: 'userSearchRequest' });
+          }
+        }
         const missing = purchaseRequestMissing(purchaseRequest);
         if (missing.length) throw validationError('확정 전에 필수 구매 조건을 입력해 주세요.', { missingFields: missing });
         const confirmed = runCommand(store, context, request, body, {
@@ -396,7 +409,7 @@ export function createApiServer({
         const purchaseRequest = store.getPurchaseRequest(requestId);
         if (!purchaseRequest) throw notFound('구매 조건을 찾을 수 없습니다.');
         requireOwner(purchaseRequest.buyerId, context);
-        if (purchaseRequest.status !== 'CONFIRMED') throw invalidState('구매자가 Web에서 조건을 확정한 뒤 검색할 수 있습니다.');
+        if (purchaseRequest.status !== 'CONFIRMED') throw invalidState('구매자가 Web 또는 Agent 대화에서 조건을 확정한 뒤 검색할 수 있습니다.');
         const results = runCommand(store, context, request, body, {
           actionType: 'SEARCH_LISTINGS', targetType: 'PurchaseRequest', targetId: requestId, operation: path + url.search,
         }, () => {

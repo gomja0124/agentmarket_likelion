@@ -137,7 +137,7 @@ test('Agent draft writes are idempotent, and only the owner can publish it', asy
   });
 });
 
-test('purchase requests stay private, require human confirmation, and search is repeatable', async () => {
+test('purchase requests stay private, require explicit search approval, and search is repeatable', async () => {
   await withApi(async (base, server) => {
     const draft = await call(base, '/api/purchase-requests', {
       method: 'POST', actorType: 'AGENT', requestId: 'buyer-request-1',
@@ -158,7 +158,7 @@ test('purchase requests stay private, require human confirmation, and search is 
     });
     assert.equal(prematureAgentSearch.status, 409);
     const agentConfirm = await call(base, `/api/purchase-requests/${draft.value.id}/confirm`, { method: 'POST', actorType: 'AGENT' });
-    assert.equal(agentConfirm.status, 403);
+    assert.equal(agentConfirm.status, 409, 'Agent는 최신 초안과 검색 요청 문장 없이는 확정할 수 없다');
 
     const confirmed = await call(base, `/api/purchase-requests/${draft.value.id}/confirm`, { method: 'POST' });
     assert.equal(confirmed.status, 200);
@@ -263,9 +263,9 @@ test('purchase API shares review guidance, owner-only detail and approval reset 
       body: { knownConstraints: { maxBudgetKrw: 1000000 } } });
     assert.equal(edited.value.readyForConfirmation, true);
     assert.equal(edited.value.nextAction.action, 'REVIEW_AND_CONFIRM');
-    assert.equal(edited.value.nextAction.actor, 'HUMAN');
+    assert.equal(edited.value.nextAction.actor, 'HUMAN_OR_SCOPED_AGENT');
     assert.ok(!edited.value.nextQuestions.some(question => question.includes('예산')));
-    assert.equal((await call(base, `${path}/confirm`, { method: 'POST', actorType: 'AGENT' })).status, 403);
+    assert.equal((await call(base, `${path}/confirm`, { method: 'POST', actorType: 'AGENT' })).status, 409);
     assert.equal((await call(base, `${path}/search`, { method: 'POST' })).status, 409);
     const confirmed = await call(base, `${path}/confirm`, { method: 'POST' });
     assert.equal(confirmed.value.humanApprovalRequired, false);
