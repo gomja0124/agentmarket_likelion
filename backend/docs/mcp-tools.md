@@ -132,13 +132,14 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 
 `nextQuestions`는 비어 있는 항목에 대한 질문을 스펙 우선순위로 만든다. 판매: category → model → priceKrw → storageGb → condition → accessories. 구매: category → maxBudgetKrw → modelQuery → storageGb. 백엔드는 값을 추정하지 않으므로 Agent가 사용자에게 묻고 `update_*`로 채운다.
 
-### 보조 tool (6, 모두 read)
+### 보조 tool (7, 모두 read)
 
 | tool | 설명 |
 | --- | --- |
 | `whoami` | 대리하는 사용자, 토큰 이름, scope |
 | `get_market_guide` | 할 수 있는 일·없는 일, 판매·구매 흐름, 승인 지점. 가장 먼저 호출 |
 | `browse_listings` | 구매 조건 없이 ACTIVE 실매물 텍스트 검색. 운영에서는 시연용을 기본 제외하며 `includeSamples: true`로만 포함 |
+| `review_listing_details` | 판매 정보에서 누락된 사양·사진·배터리 확인 질문과 동일 모델·용량·상태의 등록 희망가 분포. 3건 미만이면 가격 범위를 제시하지 않으며, 시연용이 섞이면 실제 시세와 분리 |
 | `list_my_listing_drafts` | 내 판매 초안 + `nextAction` |
 | `list_my_listings` | 내 매물 (ACTIVE/INACTIVE) |
 | `list_my_purchase_requests` | 내 구매 조건 + `nextAction` |

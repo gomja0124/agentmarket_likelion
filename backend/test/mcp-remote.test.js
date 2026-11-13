@@ -77,7 +77,7 @@ test('tool list follows token scopes; backend still enforces them', async () => 
     const readOnly = await issue('read-only', ['read']);
     const ro = await connect(readOnly.token);
     const roTools = (await ro.client.listTools()).tools.map(t => t.name).sort();
-    assert.deepEqual(roTools, ['browse_listings', 'get_category_schema', 'get_listing', 'get_market_guide', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'whoami']);
+    assert.deepEqual(roTools, ['browse_listings', 'get_category_schema', 'get_listing', 'get_market_guide', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'review_listing_details', 'whoami']);
     const me = await ro.call('whoami');
     assert.equal(me.value.userId, demoUser);
     assert.deepEqual(me.value.scopes, ['read']);

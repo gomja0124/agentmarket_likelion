@@ -168,6 +168,43 @@ test('password reissue revokes existing sessions and expired sessions cannot acc
   });
 });
 
+test('one-time recovery code resets password and revokes sessions and Agent tokens', async () => {
+  await withServers(async ({ webUrl, web }) => {
+    const loginName = 'recovery-buyer';
+    const register = await fetch(`${webUrl}/web/register`, { method: 'POST', headers: { Origin: origin,
+      'Content-Type': 'application/json' }, body: JSON.stringify({ loginName, nickname: '복구 구매자',
+      password: 'initial-strong-password' }) });
+    assert.equal(register.status, 200);
+    const session = await register.json();
+    assert.match(session.recoveryCode, /^amr_[A-Za-z0-9_-]{43}$/);
+    const cookie = register.headers.get('set-cookie').split(';')[0];
+    assert.equal((await fetch(`${webUrl}/recover`)).status, 200);
+    assert.equal((await fetch(`${webUrl}/account`, { headers: { Cookie: cookie } })).status, 200);
+    const issued = await fetch(`${webUrl}/api/agent-tokens`, { method: 'POST', headers: { Cookie: cookie,
+      Origin: origin, 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '복구 테스트', scopes: ['read'] }) });
+    const token = (await issued.json()).token;
+    assert.equal(issued.status, 201);
+    const issueCode = password => fetch(`${webUrl}/web/recovery-code`, { method: 'POST', headers: { Cookie: cookie,
+      Origin: origin, 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }) });
+    assert.equal((await issueCode('wrong-password')).status, 401);
+    const newCode = (await (await issueCode('initial-strong-password')).json()).recoveryCode;
+    const reset = recoveryCode => fetch(`${webUrl}/web/reset-password`, { method: 'POST', headers: { Origin: origin,
+      'Content-Type': 'application/json' }, body: JSON.stringify({ loginName, recoveryCode,
+      newPassword: 'replacement-strong-password' }) });
+    assert.equal((await reset(session.recoveryCode)).status, 401);
+    assert.equal((await reset(newCode)).status, 200);
+    assert.equal((await reset(newCode)).status, 401);
+    assert.equal((await fetch(`${webUrl}/api/me`, { headers: { Cookie: cookie } })).status, 401);
+    assert.equal(web.store.findAgentTokenByHash((await import('../server/auth.js')).hashToken(token)).revokedAt != null, true);
+    const login = password => fetch(`${webUrl}/web/login`, { method: 'POST', headers: { Origin: origin,
+      'Content-Type': 'application/json' }, body: JSON.stringify({ loginName, password }) });
+    assert.equal((await login('initial-strong-password')).status, 401);
+    assert.equal((await login('replacement-strong-password')).status, 200);
+  });
+});
+
 test('HTTPS Web session cookie uses Secure and the host prefix', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agent-market-web-'));
   const web = createWebServer({ dbPath: join(dir, 'market.sqlite'), seed: false,

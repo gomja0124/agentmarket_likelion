@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { Store } from './database.js';
 import { ApiError, forbidden, invalidState, notFound, validationError } from './errors.js';
 import { matchListings } from './matching.js';
+import { listingAdvice } from './listing-advice.js';
 import { purchaseRequestResponse } from './purchase-api.js';
 import { demandFromRequest, matchDemand, patchDemand, publicDemandView } from './reverse-market.js';
 import { authConfigFromEnv, authenticate, issueToken, requireScope, requiredScope, SCOPES } from './auth.js';
@@ -203,6 +204,15 @@ export function createApiServer({
       if (method === 'GET' && segments.join('/') === 'api/listing-drafts/mine') {
         send(response, 200, store.listDraftsBySeller(context.userId)); return;
       }
+      if (method === 'GET' && segments.join('/') === 'api/listing-advice') {
+        const input = Object.fromEntries(['category', 'model', 'storageGb', 'condition', 'priceKrw']
+          .map(key => [key, url.searchParams.get(key)]));
+        input.hasPhoto = url.searchParams.get('hasPhoto') === 'true';
+        input.hasDescription = url.searchParams.get('hasDescription') === 'true';
+        input.hasBatteryDetails = url.searchParams.get('hasBatteryDetails') === 'true';
+        const includeSamples = url.searchParams.get('includeSamples') === 'true';
+        send(response, 200, listingAdvice(store.listListings({ includeSamples }), input)); return;
+      }
       if (method === 'GET' && segments.join('/') === 'api/purchase-requests/mine') {
         send(response, 200, store.listRequestsByBuyer(context.userId).map(purchaseRequestResponse)); return;
       }
@@ -215,7 +225,7 @@ export function createApiServer({
       if (method === 'GET' && segments.length === 3 && segments[0] === 'api' && segments[1] === 'listings') {
         const listing = store.getListing(segments[2]);
         if (!listing) throw notFound('매물을 찾을 수 없습니다.');
-        if (listing.status !== 'ACTIVE' && listing.sellerId !== context.userId) throw notFound('매물을 찾을 수 없습니다.');
+        if (!store.isPublicListing(listing) && listing.sellerId !== context.userId) throw notFound('매물을 찾을 수 없습니다.');
         send(response, 200, listing); return;
       }
 
@@ -320,6 +330,30 @@ export function createApiServer({
         const updated = runCommand(store, context, request, body, {
           actionType: 'MARK_LISTING_SOLD', targetType: 'Listing', targetId: listing.id, operation: path,
         }, () => store.markListingSold(listing.id, now()));
+        send(response, 200, updated); return;
+      }
+      if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'listings' && segments[3] === 'verify') {
+        humanOnly(context, '실매물 정보를 확인');
+        const listing = store.getListing(segments[2]);
+        if (!listing) throw notFound('매물을 찾을 수 없습니다.');
+        requireOwner(listing.sellerId, context);
+        if (listing.isSample) throw validationError('시연용 매물은 실매물로 확인할 수 없습니다.');
+        if (listing.status !== 'ACTIVE' || listing.soldAt) throw invalidState('판매 가능한 활성 매물만 확인할 수 있습니다.');
+        if (![body?.ownedBySeller, body?.photosAreOfItem, body?.conditionAccurate, body?.availableForSale].every(value => value === true)) {
+          throw validationError('소유·사진·상태·판매 가능 여부를 모두 직접 확인해 주세요.');
+        }
+        if (!listing.images.some(image => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(image))) {
+          throw validationError('직접 촬영한 기기 사진을 첨부해 주세요.');
+        }
+        if (!listing.condition || !listing.storageGb || (listing.description || '').trim().length < 10) {
+          throw validationError('상태, 용량, 10자 이상의 설명을 입력한 뒤 확인해 주세요.');
+        }
+        const updated = store.transaction(() => {
+          const value = store.confirmListingAvailability(listing.id, now());
+          store.expirePublicDemands(now());
+          store.notifyMatchesForListing(value, now());
+          return value;
+        });
         send(response, 200, updated); return;
       }
 
@@ -448,13 +482,40 @@ export function createApiServer({
         const listing = store.getListing(segments[2]);
         if (!listing) throw notFound('매물을 찾을 수 없습니다.');
         requireOwner(listing.sellerId, context);
-        if (listing.status !== 'ACTIVE') throw invalidState('활성 매물에서만 공개 수요를 탐색할 수 있습니다.');
+        if (!store.isPublicListing(listing)) throw invalidState('판매 정보를 확인한 활성 매물에서만 공개 수요를 탐색할 수 있습니다.');
         send(response, 200, store.matchingDemandsForListing(listing).map(({ demand, match }) => ({
           demand: publicDemandView(demand), ...match,
         }))); return;
       }
       if (method === 'GET' && segments.join('/') === 'api/connection-requests/mine') {
         send(response, 200, store.listConnectionRequests(context.userId).map(value => connectionView(value, context.userId))); return;
+      }
+      if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'connection-requests' && segments[3] === 'messages' && ['GET', 'POST'].includes(method)) {
+        humanOnly(context, '거래 대화를 조회하거나 전송');
+        const connection = store.getConnectionRequest(segments[2]);
+        if (!connection) throw notFound('연결을 찾을 수 없습니다.');
+        if (connection.buyerId !== context.userId && connection.sellerId !== context.userId) throw forbidden('연결 당사자만 대화를 볼 수 있습니다.');
+        if (connection.status !== 'ACCEPTED') throw invalidState('구매자가 연결을 수락한 뒤에만 대화할 수 있습니다.');
+        const at = now();
+        store.purgeOldConnectionMessages(new Date(Date.now() - 30 * 86_400_000).toISOString());
+        const view = message => ({ id: message.id, fromMe: message.senderId === context.userId,
+          body: message.body, createdAt: message.createdAt });
+        if (method === 'GET') { send(response, 200, store.listConnectionMessages(connection.id).map(view)); return; }
+        if (Date.parse(connection.updatedAt) < Date.now() - 30 * 86_400_000) {
+          throw invalidState('연결 수락 후 30일이 지나 대화가 종료됐습니다.');
+        }
+        const message = typeof body?.message === 'string' ? body.message.trim().replace(/[\u0000-\u001f\u007f]/g, ' ') : '';
+        if (!message || message.length > 500) throw validationError('메시지는 1~500자로 입력해 주세요.', { field: 'message' });
+        if (/(?:https?:\/\/|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:^|\D)0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)|\b\d{7,}\b)/i.test(message)) {
+          throw validationError('전화번호·이메일·외부 링크·계좌번호는 대화에 적을 수 없습니다.', { field: 'message' });
+        }
+        const minuteAgo = new Date(Date.now() - 60_000).toISOString();
+        if (store.countRecentConnectionMessages(connection.id, context.userId, minuteAgo) >= 6) {
+          throw new ApiError(429, 'RATE_LIMITED', '1분에 최대 6개 메시지를 보낼 수 있습니다.');
+        }
+        const saved = store.addConnectionMessage({ id: randomUUID(), connectionId: connection.id,
+          senderId: context.userId, body: message, at });
+        send(response, 201, view(saved)); return;
       }
       if (method === 'POST' && segments.join('/') === 'api/connection-requests') {
         humanOnly(context, '연결을 요청');
@@ -465,7 +526,7 @@ export function createApiServer({
         if (!demand || demand.status !== 'ACTIVE') throw notFound('활성 공개 수요를 찾을 수 없습니다.');
         if (!listing) throw notFound('매물을 찾을 수 없습니다.');
         requireOwner(listing.sellerId, context);
-        if (listing.status !== 'ACTIVE') throw invalidState('활성 매물만 연결 요청에 사용할 수 있습니다.');
+        if (!store.isPublicListing(listing)) throw invalidState('판매 정보를 확인한 활성 매물만 연결 요청에 사용할 수 있습니다.');
         if (demand.buyerId === context.userId) throw invalidState('본인의 수요에는 연결 요청할 수 없습니다.');
         if (matchDemand(listing, demand).matchStatus !== 'MATCH') throw invalidState('조건이 충족된 매물만 연결 요청할 수 있습니다.');
         if (store.getConnectionForPair(demand.id, listing.id)) throw invalidState('이미 연결 요청한 매물과 수요입니다.');

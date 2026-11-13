@@ -12,7 +12,7 @@ COPY backend/schemas ./backend/schemas
 COPY backend/scripts ./backend/scripts
 COPY backend/deploy ./backend/deploy
 COPY frontend ./frontend
-RUN mkdir -p /data && chmod +x /app/backend/deploy/entrypoint.sh
+RUN mkdir -p /data /backups && chmod +x /app/backend/deploy/entrypoint.sh
 ENV AGENT_MARKET_DB_PATH=/data/agent-market.sqlite
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

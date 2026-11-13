@@ -22,11 +22,19 @@ form.addEventListener('submit', async event => {
       body: JSON.stringify({ loginName: form.elements.loginName.value, nickname: form.elements.nickname.value,
         password: form.elements.password.value }),
     });
-    if (!response.ok) throw new Error((await response.json()).message || '회원가입에 실패했습니다.');
-    location.assign(selling ? '/#sell' : '/');
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || '회원가입에 실패했습니다.');
+    form.hidden = true;
+    document.querySelector('#recovery-code').textContent = result.recoveryCode;
+    document.querySelector('#recovery-card').hidden = false;
   } catch (error) {
     message.textContent = error.message;
     message.hidden = false;
     button.disabled = false;
   }
 });
+document.querySelector('#copy-recovery-code').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(document.querySelector('#recovery-code').textContent); }
+  catch { document.querySelector('#recovery-code').focus(); }
+});
+document.querySelector('#continue-after-register').addEventListener('click', () => location.assign(selling ? '/#sell' : '/'));

@@ -40,6 +40,8 @@ export function safeEqual(a, b) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 export function newSessionToken() { return randomBytes(32).toString('base64url'); }
+export function newRecoveryCode() { return `amr_${randomBytes(32).toString('base64url')}`; }
+export function recoveryCodeHash(code) { return createHash('sha256').update(String(code)).digest('hex'); }
 
 export async function provisionWebUser(store, { loginName, nickname, password, userId } = {}) {
   const login = normalizeLoginName(loginName);

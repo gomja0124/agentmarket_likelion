@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../server/database.js';
-import { csrfToken, newSessionToken, normalizeLoginName, provisionWebUser, safeEqual, sessionHash, verifyPassword } from './auth.js';
+import { csrfToken, hashPassword, newRecoveryCode, newSessionToken, normalizeLoginName, provisionWebUser,
+  recoveryCodeHash, safeEqual, sessionHash, verifyPassword } from './auth.js';
 
 const defaultFrontendDir = fileURLToPath(new URL('../../frontend/', import.meta.url));
 const maxBodyBytes = 1_500_000;
@@ -74,7 +75,7 @@ export function createWebServer(options = {}) {
     record.count += 1;
     return record.count > limit;
   };
-  const createSession = (response, user) => {
+  const createSession = (response, user, extra = {}) => {
     const token = newSessionToken();
     const createdAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + sessionSeconds * 1000).toISOString();
@@ -82,7 +83,7 @@ export function createWebServer(options = {}) {
     store.saveWebSession({ sessionHash: sessionHash(token), userId: user.id, createdAt, expiresAt });
     setCookie(response, token);
     json(response, 200, { authenticated: true, userId: user.id, nickname: user.nickname,
-      csrfToken: csrfToken(config.webSecret, token) });
+      csrfToken: csrfToken(config.webSecret, token), ...extra });
   };
 
   const serveFile = async (response, relative, contentType) => {
@@ -132,7 +133,9 @@ export function createWebServer(options = {}) {
         activeRegistrations += 1;
         try {
           const user = await provisionWebUser(store, { loginName, nickname: body.nickname, password: body.password });
-          createSession(response, { id: user.id, nickname: user.nickname });
+          const recoveryCode = newRecoveryCode();
+          store.saveRecoveryCode(user.id, recoveryCodeHash(recoveryCode), new Date().toISOString());
+          createSession(response, { id: user.id, nickname: user.nickname }, { recoveryCode });
         } catch (cause) {
           if (String(cause.message).includes('UNIQUE constraint failed: web_credentials.login_name')) {
             error(response, 409, 'LOGIN_NAME_TAKEN', '이미 사용 중인 로그인 이름입니다.');
@@ -171,6 +174,54 @@ export function createWebServer(options = {}) {
         setCookie(response, '', 0);
         json(response, 200, { authenticated: false }); return;
       }
+      if (method === 'POST' && path === '/web/recovery-code') {
+        if (!session) { error(response, 401, 'UNAUTHORIZED', '로그인이 필요합니다.'); return; }
+        if (!validOrigin(request) || !validCsrf(request, session)) { error(response, 403, 'CSRF', '요청을 확인할 수 없습니다.'); return; }
+        if (!String(request.headers['content-type'] || '').startsWith('application/json')) {
+          error(response, 415, 'UNSUPPORTED_MEDIA_TYPE', 'JSON 요청만 허용합니다.'); return;
+        }
+        const body = JSON.parse((await readBody(request)).toString('utf8'));
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          error(response, 400, 'INVALID_RECOVERY', '요청을 확인해 주세요.'); return;
+        }
+        const ip = request.socket.remoteAddress || 'unknown';
+        if (rateLimited(`recovery-issue:${session.userId}:${ip}`, 6)) {
+          error(response, 429, 'RATE_LIMITED', '잠시 후 다시 시도해 주세요.'); return;
+        }
+        const credential = store.getWebCredentialByUser(session.userId);
+        if (!await verifyPassword(body.password, credential?.passwordHash)) {
+          error(response, 401, 'INVALID_CREDENTIALS', '현재 비밀번호가 올바르지 않습니다.'); return;
+        }
+        const recoveryCode = newRecoveryCode();
+        store.saveRecoveryCode(session.userId, recoveryCodeHash(recoveryCode), new Date().toISOString());
+        json(response, 200, { recoveryCode }); return;
+      }
+      if (method === 'POST' && path === '/web/reset-password') {
+        if (!validOrigin(request)) { error(response, 403, 'BAD_ORIGIN', '허용되지 않은 요청 출처입니다.'); return; }
+        if (!String(request.headers['content-type'] || '').startsWith('application/json')) {
+          error(response, 415, 'UNSUPPORTED_MEDIA_TYPE', 'JSON 요청만 허용합니다.'); return;
+        }
+        const body = JSON.parse((await readBody(request)).toString('utf8'));
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          error(response, 400, 'INVALID_RECOVERY', '요청을 확인해 주세요.'); return;
+        }
+        let loginName;
+        try { loginName = normalizeLoginName(body.loginName); } catch { loginName = ''; }
+        const ip = request.socket.remoteAddress || 'unknown';
+        const ipLimited = rateLimited(`reset:ip:${ip}`, 10);
+        const userLimited = rateLimited(`reset:user:${loginName}`, 6);
+        if (ipLimited || userLimited) { error(response, 429, 'RATE_LIMITED', '잠시 후 다시 시도해 주세요.'); return; }
+        const credential = loginName ? store.getWebCredential(loginName) : null;
+        const actual = recoveryCodeHash(body.recoveryCode || '');
+        if (!credential || !safeEqual(actual, store.getRecoveryCode(credential.userId) || '0'.repeat(64))) {
+          error(response, 401, 'INVALID_RECOVERY', '로그인 이름 또는 복구 코드가 올바르지 않습니다.'); return;
+        }
+        let passwordHash;
+        try { passwordHash = await hashPassword(body.newPassword); }
+        catch (cause) { error(response, 400, 'INVALID_PASSWORD', cause.message); return; }
+        store.resetWebPassword(credential.userId, passwordHash, new Date().toISOString());
+        json(response, 200, { reset: true, message: '비밀번호가 변경되었습니다. 기존 로그인과 Agent 토큰은 모두 종료됩니다.' }); return;
+      }
       if (path.startsWith('/api/')) {
         if (!session) { error(response, 401, 'UNAUTHORIZED', '로그인이 필요합니다.'); return; }
         if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) { error(response, 405, 'METHOD_NOT_ALLOWED', '지원하지 않는 요청입니다.'); return; }
@@ -200,6 +251,11 @@ export function createWebServer(options = {}) {
       if (path === '/register') {
         if (session) { response.writeHead(302, { Location: '/' }); response.end(); return; }
         await serveFile(response, 'register.html', 'text/html; charset=utf-8'); return;
+      }
+      if (path === '/recover') { await serveFile(response, 'recover.html', 'text/html; charset=utf-8'); return; }
+      if (path === '/account') {
+        if (!session) { response.writeHead(302, { Location: '/login' }); response.end(); return; }
+        await serveFile(response, 'account.html', 'text/html; charset=utf-8'); return;
       }
       if (path === '/') {
         await serveFile(response, session ? 'index.html' : 'landing.html', 'text/html; charset=utf-8'); return;

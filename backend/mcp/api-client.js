@@ -71,6 +71,11 @@ export class AgentMarketApi {
   health() { return this.get('/api/health'); }
   me() { return this.get('/api/me'); }
   categorySchema(category) { return this.get(`/api/categories/${encodeURIComponent(category)}/schema`); }
+  listingAdvice(fields = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(fields)) if (value != null && value !== '') params.set(key, String(value));
+    return this.get(`/api/listing-advice?${params}`);
+  }
   listListings(query = '', includeSamples = false) { return this.get(`/api/listings?status=ACTIVE${query ? `&q=${encodeURIComponent(query)}` : ''}${includeSamples ? '&includeSamples=true' : ''}`); }
   getListing(id) { return this.get(`/api/listings/${encodeURIComponent(id)}`); }
   myListings() { return this.get('/api/listings/mine'); }

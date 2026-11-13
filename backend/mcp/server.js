@@ -282,6 +282,16 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
     preferredPurchaseConditions: ['modelQuery', 'storageGb'],
   }));
 
+  register('read', 'review_listing_details', {
+    title: '판매 정보 확인 질문과 가격 근거',
+    description: '판매자의 모델·용량·상태·사진·설명 입력을 점검해 다음 질문을 제안한다. 동일 모델의 등록 희망가가 3건 이상일 때만 참고 범위를 제공한다. 사진의 진위를 AI로 판별하거나 실제 거래 시세를 보증하지 않는다. Agent는 가격을 임의로 확정하지 말 것.',
+    inputSchema: { category: CATEGORY.optional(), model: z.string().max(200).optional(),
+      storageGb: z.number().int().positive().optional(), condition: CONDITION.optional(),
+      priceKrw: z.number().int().positive().optional(), hasPhoto: z.boolean().optional(),
+      hasDescription: z.boolean().optional(), hasBatteryDetails: z.boolean().optional(),
+      includeSamples: z.boolean().optional().describe('시연용 가격 계산 예시를 포함할 때만 true') },
+  }, fields => api.listingAdvice(fields));
+
   register('read', 'get_listing', {
     title: '매물 상세',
     description: '후보 매물의 구조화 필드와 이미지 링크를 돌려준다. missingFields에 있는 항목은 판매자가 입력하지 않은 것이므로 정상으로 추정하지 않는다.',

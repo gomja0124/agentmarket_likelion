@@ -88,6 +88,10 @@
 .photo-preview{display:flex;align-items:end;gap:12px;margin-top:10px}
 .photo-preview img{width:110px;height:100px;object-fit:cover;border-radius:10px;border:1px solid #dce7dc}
 .photo-preview button{border:0;background:none;color:#9a554a;font-size:12px;font-weight:800;text-decoration:underline;padding:8px 0}
+.verify-page .review-grid{margin-bottom:80px}.verification-check{display:flex;gap:10px;align-items:flex-start;margin:0 0 18px;line-height:1.6;font-size:13px;color:#304d38}.verification-check input{margin-top:4px;accent-color:#234b36}.verification-hint{color:#61736a;font-size:13px;line-height:1.8;margin-top:20px}
+.advice-box{background:#f3f8f1;border:1px solid #dceadd;border-radius:12px;padding:18px 20px;margin-top:14px;color:#304d38;font-size:13px;line-height:1.7}.advice-box strong{display:block;margin-top:8px}.advice-box ul{padding-left:20px;margin:8px 0 18px}.advice-box p{margin:8px 0}.advice-box small{display:block;color:#667d6d}
+[hidden]{display:none!important}.recovery-code{display:block;overflow-wrap:anywhere;background:#eef5ec;border:1px solid #dceadd;border-radius:10px;padding:16px;margin:20px 0;color:#173b25;font-size:14px;line-height:1.6;user-select:all}
+.chat-page{max-width:950px}.chat-thread{height:min(55vh,500px);overflow:auto;border:1px solid #dce7dc;border-radius:16px;background:#fafcf9;padding:22px;display:flex;flex-direction:column;gap:14px}.chat-message{max-width:78%;align-self:flex-start;background:#fff;border:1px solid #e2ebe1;border-radius:14px;padding:12px 16px}.chat-message.mine{align-self:flex-end;background:#e7f3e6}.chat-message strong{font-size:12px}.chat-message p{font-size:14px;line-height:1.6;white-space:pre-wrap;margin:7px 0}.chat-message small{color:#77907c}.chat-form{margin:18px 0 70px}.chat-form button{float:right}
 @media(max-width:700px){.inventory-bar,.seller-invite{align-items:flex-start;flex-direction:column}.seller-invite .btn{width:100%}}
 .agent-home-hero { background: linear-gradient(120deg,#f1f7ee 0%,#f9faf6 65%,#edf4eb 100%); padding: 76px 0 74px; }
 .agent-home-grid { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(310px,.85fr); align-items: center; gap: 64px; }
@@ -131,5 +135,8 @@
 .agent-guide pre { max-width: 100%; overflow-x: auto; padding: 17px; border-radius: 9px; background: #edf4ec; color: #284634; line-height: 1.5; }
 .agent-guide pre code { background: none; padding: 0; font-size: 12px; }
 .agent-guide a { color: #2b6740; font-weight: 800; }
+.advice-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; margin: 5px 0 18px; }
+.advice-controls label { display: inline-flex; align-items: center; gap: 7px; color: #627467; font-size: 12px; cursor: pointer; }
+.advice-controls input { accent-color: #3b7547; }
 @media(max-width:900px) { .agent-home-grid { gap: 26px; } .agent-home-actions { display: block; } .agent-home-actions>div:last-child { justify-content: flex-start; margin-top: 18px; } .agent-endpoint { flex-wrap: wrap; } }
 @media(max-width:700px) { .agent-home-hero { padding: 52px 0; } .agent-home-grid { display: block; } .agent-home-copy h1 { font-size: 39px; } .agent-home-card { margin-top: 33px; padding: 24px; } .agent-home-workflow { padding-top: 55px; } .agent-workflow-grid,.agent-setup-steps { grid-template-columns: 1fr; } .agent-home-actions { padding: 20px; } .agent-endpoint { display: block; } .agent-endpoint>code { display: block; margin: 18px 0 12px; } .agent-endpoint .btn { width: 100%; } .mobile-nav button { font-size: 10px; } }

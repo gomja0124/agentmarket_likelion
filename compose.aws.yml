@@ -7,8 +7,12 @@ services:
       AGENT_MARKET_WEB_URL: https://${AGENT_MARKET_DOMAIN:?set AGENT_MARKET_DOMAIN in .env}
       AGENT_MARKET_WEB_SECRET: ${AGENT_MARKET_WEB_SECRET:?set AGENT_MARKET_WEB_SECRET in .env}
       AGENT_MARKET_ENABLE_STEP2: ${AGENT_MARKET_ENABLE_STEP2:-0}
+      AGENT_MARKET_REQUIRE_VERIFIED_LISTINGS: "1"
+      AGENT_MARKET_BACKUP_DIR: /backups
+      AGENT_MARKET_BACKUP_INTERVAL_HOURS: "24"
     volumes:
       - market-data:/data
+      - market-backups:/backups
     expose:
       - "8080"
     healthcheck:
@@ -36,5 +40,6 @@ services:
 
 volumes:
   market-data:
+  market-backups:
   caddy-data:
   caddy-config:

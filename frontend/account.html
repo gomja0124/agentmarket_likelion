@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ko">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>계정·복구 · Agent Market</title><link rel="stylesheet" href="/src/styles.css" /></head>
+  <body class="login-body"><main class="login-wrap">
+    <a class="login-brand" href="/">agent market<span>.</span></a>
+    <form id="account-form" class="login-card">
+      <span class="section-kicker">ACCOUNT SECURITY</span><h1>계정 복구 코드</h1>
+      <p>현재 비밀번호로 새 복구 코드를 발급할 수 있음. 이전 코드는 즉시 무효가 됨. 코드를 안전한 곳에 보관해 주세요.</p>
+      <label class="field"><span class="field-label">현재 비밀번호</span><input name="password" type="password" autocomplete="current-password" required /></label>
+      <p id="account-message" class="login-error" role="status" hidden></p>
+      <button class="btn btn-dark full" type="submit">새 복구 코드 발급</button>
+      <div id="account-result" hidden><code id="account-code" class="recovery-code"></code>
+        <button id="copy-account-code" class="btn btn-outline full" type="button">코드 복사</button></div>
+      <p class="auth-switch"><a href="/">마켓으로 돌아가기</a></p>
+    </form>
+  </main><script type="module" src="/src/account.js"></script></body>
+</html>

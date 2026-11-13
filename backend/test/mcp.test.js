@@ -18,7 +18,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const demoUser = '00000000-0000-4000-8000-000000000001';
 
 const SPEC_TOOLS = ['get_category_schema', 'create_listing_draft', 'update_listing_draft', 'create_purchase_request_draft', 'update_purchase_request_draft', 'search_listings', 'get_listing'];
-const HELPER_TOOLS = ['whoami', 'get_market_guide', 'browse_listings', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests'];
+const HELPER_TOOLS = ['whoami', 'get_market_guide', 'browse_listings', 'review_listing_details', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests'];
 
 async function withMcp(run, { userId = demoUser, token = '', apiOptions = {}, step2 = false } = {}) {
   const api = createApiServer({ dbPath: ':memory:', mcpStep2Enabled: step2, ...apiOptions });
@@ -65,6 +65,9 @@ test('tool set matches 03 MCP Tools Spec and exposes no publish/confirm', async 
     assert.match(client.getInstructions() || '', /게시.*사람/);
     const guide = await call('get_market_guide');
     assert.equal(guide.value.apiHealth.step, 1);
+    const advice = await call('review_listing_details', { category: 'PHONE', model: 'Galaxy S23', storageGb: 256 });
+    assert.ok(advice.value.questions.some(question => question.includes('사진')));
+    assert.equal(advice.value.recommendedRange, null);
     assert.equal(guide.value.apiHealth.mcpStep2Enabled, false);
     assert.equal(guide.value.webUrl, 'http://web.local');
     const schema = await call('get_category_schema', { category: 'PHONE' });

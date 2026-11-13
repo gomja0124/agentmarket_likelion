@@ -138,6 +138,18 @@ export const api = {
     listing.status = 'INACTIVE'; listing.soldAt = new Date().toISOString(); listing.updatedAt = listing.soldAt;
     write(state); return listing;
   },
+  async verifyListing(listingId, confirmation) {
+    if (isDemo) throw new Error('실매물 확인은 운영 계정에서 사용할 수 있습니다.');
+    return request(`/api/listings/${encodeURIComponent(listingId)}/verify`, { method: 'POST', body: confirmation });
+  },
+  async listingAdvice(fields, includeSamples = false) {
+    const params = new URLSearchParams();
+    for (const key of ['category', 'model', 'storageGb', 'condition', 'priceKrw', 'hasPhoto', 'hasDescription', 'hasBatteryDetails']) {
+      if (fields[key] != null && fields[key] !== '') params.set(key, String(fields[key]));
+    }
+    if (includeSamples) params.set('includeSamples', 'true');
+    return request(`/api/listing-advice?${params}`);
+  },
   async savePurchaseRequest(value) {
     if (!isDemo) return value.id
       ? request(`/api/purchase-requests/${value.id}`, { method: 'PATCH', body: value })
@@ -202,6 +214,14 @@ export const api = {
   async respondConnectionRequest(connectionId, action) {
     if (isDemo) throw new Error('연결 요청 기능은 백엔드를 실행한 뒤 이용할 수 있습니다.');
     return request(`/api/connection-requests/${encodeURIComponent(connectionId)}/${encodeURIComponent(action)}`, { method: 'POST' });
+  },
+  async listConnectionMessages(connectionId) {
+    if (isDemo) return [];
+    return request(`/api/connection-requests/${encodeURIComponent(connectionId)}/messages`);
+  },
+  async sendConnectionMessage(connectionId, message) {
+    if (isDemo) throw new Error('거래 대화는 운영 계정에서 사용할 수 있습니다.');
+    return request(`/api/connection-requests/${encodeURIComponent(connectionId)}/messages`, { method: 'POST', body: { message } });
   },
   async listNotifications() {
     return isDemo ? [] : request('/api/notifications/mine');
