@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { AgentMarketApi, ApiError } from './api-client.js';
@@ -9,7 +8,7 @@ import { createAgentMarketServer, SERVER_VERSION } from './server.js';
  * 원격 MCP 서버 (Streamable HTTP, stateless).
  *
  * - 엔드포인트: POST /mcp  (GET/DELETE는 stateless라 405)
- * - 인증: 모든 요청에 Authorization: Bearer amk_... 필수. 토큰은 백엔드 /api/me 로 검증하고 짧게 캐시한다.
+ * - 인증: 모든 요청에 Authorization: Bearer amk_... 필수. 토큰은 매 요청마다 백엔드 /api/me 로 검증해 폐기를 즉시 반영한다.
  * - 요청마다 토큰에 묶인 MCP 서버 인스턴스를 만들어 처리한다. 세션 상태를 서버에 두지 않아 수평 확장이 쉽다.
  * - 보호: 본문 크기 제한, 토큰별 분당 요청 제한, 백엔드 호출 타임아웃.
  */
@@ -53,19 +52,6 @@ function readBody(request, response) {
   });
 }
 
-class IdentityCache {
-  constructor(ttlMs) { this.ttlMs = ttlMs; this.entries = new Map(); }
-  key(token) { return createHash('sha256').update(token).digest('hex'); }
-  get(token) {
-    const entry = this.entries.get(this.key(token));
-    if (!entry) return undefined;
-    if (entry.expiresAt < Date.now()) { this.entries.delete(this.key(token)); return undefined; }
-    return entry.identity;
-  }
-  set(token, identity) { this.entries.set(this.key(token), { identity, expiresAt: Date.now() + this.ttlMs }); }
-  delete(token) { this.entries.delete(this.key(token)); }
-}
-
 class RateLimiter {
   constructor(limit, windowMs) { this.limit = limit; this.windowMs = windowMs; this.buckets = new Map(); }
   allow(key) {
@@ -81,9 +67,8 @@ class RateLimiter {
 
 export function createMcpHttpServer({
   apiUrl, webUrl = '', timeoutMs = 15_000,
-  identityTtlMs = 60_000, rateLimitPerMinute = 120, path = '/mcp',
+  rateLimitPerMinute = 120, path = '/mcp',
 } = {}) {
-  const cache = new IdentityCache(identityTtlMs);
   const limiter = new RateLimiter(rateLimitPerMinute, 60_000);
 
   async function authenticate(request) {
@@ -91,17 +76,14 @@ export function createMcpHttpServer({
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
     if (!token) throw Object.assign(new Error('Authorization: Bearer <agent token> 헤더가 필요합니다.'), { status: 401 });
     const api = new AgentMarketApi({ baseUrl: apiUrl, token, timeoutMs });
-    let identity = cache.get(token);
-    if (!identity) {
-      try {
-        identity = await resolveIdentity(api);
-      } catch (error) {
-        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-          throw Object.assign(new Error(error.message), { status: 401 });
-        }
-        throw Object.assign(new Error(`백엔드 인증 확인 실패: ${error.message}`), { status: 503 });
+    let identity;
+    try {
+      identity = await resolveIdentity(api);
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        throw Object.assign(new Error(error.message), { status: 401 });
       }
-      cache.set(token, identity);
+      throw Object.assign(new Error(`백엔드 인증 확인 실패: ${error.message}`), { status: 503 });
     }
     return { api, identity, token };
   }
@@ -155,7 +137,6 @@ export function createMcpHttpServer({
     }
   });
 
-  server.invalidateToken = token => cache.delete(token);
   return server;
 }
 
@@ -166,7 +147,6 @@ export function startFromEnv(env = process.env) {
   const server = createMcpHttpServer({
     apiUrl, webUrl, timeoutMs,
     rateLimitPerMinute: Number(env.MCP_RATE_LIMIT_PER_MINUTE || 120),
-    identityTtlMs: Number(env.MCP_IDENTITY_TTL_MS || 60_000),
   });
   server.listen(port, host, () => log('info', 'listening', { host, port, apiUrl, webUrl: webUrl || null }));
 

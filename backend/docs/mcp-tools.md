@@ -110,7 +110,6 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 | `AGENT_MARKET_API_TIMEOUT_MS` | 15000 | 백엔드 호출 타임아웃 |
 | `MCP_HOST` / `MCP_PORT` | 127.0.0.1 / 8090 | 원격 MCP 바인딩 |
 | `MCP_RATE_LIMIT_PER_MINUTE` | 120 | 토큰별 분당 요청 제한 |
-| `MCP_IDENTITY_TTL_MS` | 60000 | 토큰 검증 캐시 |
 | 백엔드: `HOST`, `PORT`, `AGENT_MARKET_DB_PATH`, `AGENT_MARKET_AUTH_MODE`, `AGENT_MARKET_WEB_SECRET`, `AGENT_MARKET_CORS_ORIGIN` | | [.env.example](../.env.example) 참고 |
 
 ## Tool 목록

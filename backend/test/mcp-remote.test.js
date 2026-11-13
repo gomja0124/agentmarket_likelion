@@ -17,7 +17,7 @@ async function withStack(run) {
   const api = createApiServer({ dbPath: ':memory:', auth: { mode: 'strict', webSecret: WEB_SECRET } });
   await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
   const apiUrl = `http://127.0.0.1:${api.address().port}`;
-  const mcp = createMcpHttpServer({ apiUrl, webUrl: 'https://web.example', rateLimitPerMinute: 30, identityTtlMs: 200 });
+  const mcp = createMcpHttpServer({ apiUrl, webUrl: 'https://web.example', rateLimitPerMinute: 30 });
   await new Promise(resolve => mcp.listen(0, '127.0.0.1', resolve));
   const mcpUrl = new URL(`http://127.0.0.1:${mcp.address().port}/mcp`);
 
@@ -62,7 +62,6 @@ test('remote MCP rejects anonymous, malformed and revoked tokens', async () => {
     await client.close();
 
     await human('DELETE', `/api/agent-tokens/${token.id}`);
-    await new Promise(resolve => setTimeout(resolve, 250)); // identity 캐시 만료 대기
     const afterRevoke = await fetch(mcpUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
     assert.equal(afterRevoke.status, 401);
 

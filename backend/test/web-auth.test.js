@@ -91,7 +91,7 @@ test('Web login creates a server session and forwards only its verified identity
     const agent = await fetch(`${apiUrl}/api/me`, { headers: { Authorization: `Bearer ${agentToken}` } });
     assert.equal(agent.status, 200);
     assert.equal((await agent.json()).userId, user.id);
-    const mcp = createMcpHttpServer({ apiUrl, identityTtlMs: 0 });
+    const mcp = createMcpHttpServer({ apiUrl });
     await new Promise(resolve => mcp.listen(0, '127.0.0.1', resolve));
     const client = new Client({ name: 'web-issued-token-test', version: '0.0.0' });
     try {
