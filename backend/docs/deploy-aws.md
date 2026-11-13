@@ -1,6 +1,6 @@
 # AWS EC2 배포 경로
 
-2026-11-13 기준 서울 리전의 `gomja-market-backend` EC2 인스턴스에서 `dokyeong-merge`의 `b9fa5fa`를 배포했다. 공개 주소 `https://gomja-market.store`와 앱 컨테이너의 Healthy 상태를 확인했다. 배포 직전 DB 백업을 만들고 새 별도 볼륨에서 자동 백업 파일 생성을 확인했다. 공개 사이트의 판매 정보 질문·시연용 가격 계산·수락된 연결의 대화 화면·시연용 매물 16개와 실제 활성 매물 0개를 확인했다. 임시 계정으로 공개 회원가입·세션·원격 MCP 읽기 도구 12개·구매 초안 작성·대화 검색 요청에 따른 조건 확정·시연용 Galaxy S23 매칭·토큰 즉시 폐기 및 임시 계정 정리까지 검증했다. 기존 Claude 실제 대화에서는 조회 전용 토큰의 `whoami`·`browse_listings`·`get_market_guide` 호출을 확인했다. 서버의 비추적 `compose.production.yml` 오버라이드는 보존한다.
+2026-11-13 기준 서울 리전의 `gomja-market-backend` EC2 인스턴스에서 `dokyeong-merge` 최신 코드를 배포했다. 공개 주소 `https://gomja-market.store`와 앱 컨테이너의 Healthy 상태를 확인했다. 배포 직전 DB 백업을 만들고 새 별도 볼륨에서 자동 백업 파일 생성을 확인했다. 공개 사이트의 판매 정보 질문·시연용 가격 계산·수락된 연결의 대화 화면·시연용 매물 16개와 실제 활성 매물 0개를 확인했다. 임시 계정으로 공개 회원가입·세션·원격 MCP 읽기 도구 12개·구매 초안 작성·대화 검색 요청에 따른 조건 확정·시연용 Galaxy S23 매칭·토큰 즉시 폐기 및 임시 계정 정리까지 검증했다. 기존 Claude 실제 대화에서는 조회 전용 토큰의 `whoami`·`browse_listings`·`get_market_guide` 호출을 확인했다. 서버의 비추적 `compose.production.yml` 오버라이드는 보존한다.
 
 ## 필요한 환경
 
