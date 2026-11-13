@@ -160,7 +160,7 @@ function buy() {
     <fieldset class="condition-field"><legend>원하는 제품 상태</legend><div class="choice-row">${Object.entries(conditions).map(([key, label]) => `<label class="choice"><input type="checkbox" name="conditionPreferences" value="${key}" ${(d.conditionPreferences || []).includes(key) ? 'checked' : ''} /><span>${label}</span></label>`).join('')}</div><small>선택하지 않으면 모든 상태를 포함해요.</small></fieldset>
     <div class="form-actions"><button type="submit" class="btn btn-outline" name="action" value="save">조건 저장</button><button type="submit" class="btn btn-dark" name="action" value="review">조건 확인하기 ${icon('arrow', 18)}</button></div></form></div>
     <aside class="side-panel side-buy"><div class="side-icon">${icon('spark', 24)}</div><h3>내 조건에 집중해서 찾아요</h3><p>기기 종류와 예산을 우선 적용하고, 모델·용량·상태를 추가하면 후보를 더 좁힐 수 있어요.</p><div class="side-rule"></div><ul><li>${icon('check', 16)} 검색은 내가 확인한 뒤 실행돼요</li><li>${icon('check', 16)} 구매 조건은 공개되지 않아요</li><li>${icon('check', 16)} 정보가 부족한 매물은 따로 표시해요</li></ul></aside></div>
-    <div class="mine-head draft-head"><h2>저장한 구매 조건 <span>${state.purchaseRequests.length}</span></h2></div>${state.purchaseRequests.length ? `<div class="draft-list">${state.purchaseRequests.map(request => `<button data-edit-request="${esc(request.id)}"><div><span class="status-pill draft">${request.status === 'CONFIRMED' ? '검색 가능' : '조건 보완 필요'}</span><h3>${categories[request.category] || '기기 미정'} · ${request.maxBudgetKrw ? formatPrice(request.maxBudgetKrw) : '예산 미정'}</h3><p>${request.source === 'AGENT' ? 'Agent 조건 초안' : '직접 작성한 조건'}</p></div>${icon('chevron', 20)}</button>`).join('')}</div>` : ''}</main>`;
+    <div class="mine-head draft-head"><h2>저장한 구매 조건 <span>${state.purchaseRequests.length}</span></h2></div>${state.purchaseRequests.length ? `<div class="draft-list">${state.purchaseRequests.map(request => `<button data-edit-request="${esc(request.id)}"><div><span class="status-pill draft">${request.status === 'CONFIRMED' ? '확정됨 · 검색하기' : '조건 보완 필요'}</span><h3>${categories[request.category] || '기기 미정'} · ${request.maxBudgetKrw ? formatPrice(request.maxBudgetKrw) : '예산 미정'}</h3><p>${request.source === 'AGENT' ? (request.status === 'CONFIRMED' ? 'Agent가 확정한 조건' : 'Agent 조건 초안') : '직접 작성한 조건'}</p></div>${icon('chevron', 20)}</button>`).join('')}</div>` : ''}</main>`;
 }
 
 function reviewRequest() {
@@ -427,7 +427,10 @@ function attach() {
     const draft = state.drafts.find(item => item.id === button.dataset.editDraft);
     state.listingAdvice = null; navigate('sell', { listingDraft: draft });
   }));
-  root.querySelectorAll('[data-edit-request]').forEach(button => button.addEventListener('click', () => { const draft = state.purchaseRequests.find(item => item.id === button.dataset.editRequest); navigate('buy', { purchaseDraft: draft }); }));
+  root.querySelectorAll('[data-edit-request]').forEach(button => button.addEventListener('click', () => {
+    const draft = state.purchaseRequests.find(item => item.id === button.dataset.editRequest);
+    if (draft) navigate(draft.status === 'CONFIRMED' ? 'review-request' : 'buy', { purchaseDraft: draft });
+  }));
   root.querySelectorAll('[data-revise]').forEach(button => button.addEventListener('click', async () => { try {
     const draft = await api.startListingRevision(button.dataset.revise);
     state.listingAdvice = null; await refresh(); navigate('sell', { listingDraft: draft });
