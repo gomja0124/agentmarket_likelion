@@ -65,7 +65,7 @@ API 실행 후 `npm run start:mcp`로 stdio MCP, `npm run start:mcp:http`로
 
 정적 Web은 demo 인증 모드로 실행할 수 있습니다. strict 모드에서는 `npm run start:web`으로 로그인 Web을 띄웁니다. Web과 API는 같은 DB를 사용하며 공유 비밀은 Web 서버에만 둡니다. [설정 방법](backend/docs/web-auth.md)을 참고하세요.
 
-Step 2 MCP 도구는 `AGENT_MARKET_ENABLE_STEP2=1`로 MCP 서버를 실행할 때만 추가됩니다. Agent는 공개 수요 **초안**과 탐색·알림 조회까지만 할 수 있고 공개·연결 요청·수락은 Web에서 사람이 직접 처리합니다.
+Step 2 MCP 도구는 `AGENT_MARKET_ENABLE_STEP2=1`로 MCP 서버를 실행할 때만 추가됩니다. 11/13 운영 EC2에서는 이 설정을 켜고 공개 HTTPS 경로에서 도구 목록과 토큰 폐기를 확인했습니다. Agent는 공개 수요 **초안**과 탐색·알림 조회까지만 할 수 있고 공개·연결 요청·수락은 Web에서 사람이 직접 처리합니다.
 
 ## 배포 구성
 
