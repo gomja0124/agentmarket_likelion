@@ -43,20 +43,23 @@ function navigate(page, extra = {}) {
   render(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 const currentRole = () => state.demoAuth ? currentDemoAccount() : state.role;
+const mcpUrl = () => new URL('/mcp', location.origin).href;
+const activeAgentTokens = () => state.tokens.filter(token => !token.revokedAt &&
+  (!token.expiresAt || Date.parse(token.expiresAt) > Date.now()));
 const navButton = (page, label) => `<button class="nav-link ${state.page === page ? 'active' : ''}" data-nav="${page}">${label}</button>`;
 
 function header() {
   const buyer = currentRole() === 'buyer';
   return `<header class="site-header"><div class="container header-inner">
     <button class="brand" data-nav="home" aria-label="Agent Market 홈"><span class="brand-mark">a<span>.</span></span><span>agent market</span></button>
-    <nav class="desktop-nav" aria-label="주요 메뉴">${buyer ? `${navButton('buy', '내 조건으로 찾기')}${navButton('demand', '내 구해요·알림')}${navButton('browse', '매물 둘러보기')}` : `${navButton('mine', '내 판매글·구해요')}${navButton('browse', '매물 둘러보기')}`}${navButton('agent', 'Agent 연결')}</nav>
-    ${buyer ? `<button class="header-sell" data-nav="buy">${icon('search', 16)} 구해요 시작</button>` : `<button class="header-sell" data-new-listing>${icon('plus', 16)} 판매글 등록</button>`}
+    <nav class="desktop-nav" aria-label="주요 메뉴">${navButton('agent', 'Agent 연결')}${buyer ? `${navButton('buy', '내 조건으로 찾기')}${navButton('demand', '내 구해요·알림')}${navButton('browse', '매물 둘러보기')}` : `${navButton('mine', '내 판매글·구해요')}${navButton('browse', '매물 둘러보기')}`}</nav>
+    <button class="header-sell" data-nav="agent">${icon('spark', 16)} Agent 시작</button>
   </div></header>`;
 }
 
 function footer() {
   const buyer = currentRole() === 'buyer';
-  return `<footer class="site-footer"><div class="container footer-inner"><div><span class="footer-brand">agent market<span>.</span></span><p>원하는 기기를 찾는 새로운 방법.</p></div><div class="footer-note">사람의 확인으로 완성되는 연결</div></div></footer><nav class="mobile-nav" aria-label="모바일 주요 메뉴"><button data-nav="home">홈</button>${buyer ? `<button data-nav="buy">조건 입력</button><button data-nav="demand">내 구해요</button><button data-nav="browse">매물</button>` : `<button data-nav="mine">내 판매글</button><button data-nav="browse">매물</button>`}<button data-nav="agent">Agent</button></nav>`;
+  return `<footer class="site-footer"><div class="container footer-inner"><div><span class="footer-brand">agent market<span>.</span></span><p>원하는 기기를 찾는 새로운 방법.</p></div><div class="footer-note">사람의 확인으로 완성되는 연결</div></div></footer><nav class="mobile-nav" aria-label="모바일 주요 메뉴"><button data-nav="home">홈</button><button data-nav="agent">Agent 연결</button>${buyer ? `<button data-nav="buy">조건 입력</button><button data-nav="demand">내 구해요</button><button data-nav="browse">매물</button>` : `<button data-nav="mine">내 판매글</button><button data-nav="browse">매물</button>`}</nav>`;
 }
 function demoAccountBar() {
   const role = currentRole();
@@ -74,24 +77,21 @@ function card(item, result) {
 }
 
 function home() {
-  if (currentRole() === 'seller') return sellerHome();
-  return `<section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow"><span class="eyebrow-dot"></span> 원하는 기기를 먼저 말해 주세요</span>
-    <h1>찾는 조건을 말하면,<br/><em>맞는 매물을 제안해요.</em></h1><p>예산과 원하는 기기를 입력하면 여러 매물을 비교해 볼 수 있어요.<br/>맞는 매물이 없으면 “구해요”를 공개해 판매자의 제안을 받을 수 있습니다.</p>
-    <div class="hero-actions"><button class="btn btn-dark" data-nav="buy">내 조건으로 구해요 ${icon('arrow', 18)}</button><button class="btn btn-light" data-nav="browse">등록 매물 ${state.listings.filter(x => x.status === 'ACTIVE').length}개 보기</button></div>
-    <p class="sample-note">자체 매물에는 시연용 데이터가 포함될 수 있습니다. 조건을 정리한 뒤 당근의 실제 판매 매물도 검색할 수 있어요.</p>
-    <div class="hero-stats"><div><strong>${state.listings.filter(x => x.status === 'ACTIVE').length}</strong><small>등록된 기기</small></div><i></i><div><strong>2</strong><small>지원 카테고리</small></div><i></i><div><strong>100<span>%</span></strong><small>사람이 최종 결정</small></div></div>
-  </div><div class="hero-visual"><div class="hero-circle circle-one"></div><div class="hero-circle circle-two"></div><div class="hero-device tablet-art"><div class="device-screen"><div class="screen-glow"></div><div class="screen-orb"></div></div></div><div class="hero-device phone-front"><div class="device-screen"><div class="screen-glow"></div><div class="screen-orb"></div></div></div><div class="float-card float-top">${icon('spark', 18)} <span>나에게 맞는 매물 발견</span></div><div class="float-card float-bottom">${icon('shield', 18)} <span>확인하고 직접 결정</span></div></div></div></section>
-  <section class="value-strip"><div class="container value-grid"><div><span class="value-icon">${icon('spark', 22)}</span><div><strong>1. 조건 말하기</strong><p>기기·예산을 자연어로 시작</p></div></div><div><span class="value-icon">${icon('search', 22)}</span><div><strong>2. 복수 후보 비교</strong><p>맞는 이유와 확인할 정보 보기</p></div></div><div><span class="value-icon">${icon('shield', 22)}</span><div><strong>3. 없으면 구해요 공개</strong><p>판매자 연결은 직접 승인</p></div></div></div></section>
-  <section class="section container"><div class="section-heading"><div><span class="section-kicker">FRESH FINDS</span><h2>새로 올라온 기기</h2><p>새로운 시작을 기다리는 기기를 만나보세요.</p></div><button class="text-link" data-nav="browse">전체 보기 ${icon('arrow', 18)}</button></div><div class="product-grid">${state.listings.filter(x => x.status === 'ACTIVE').slice(0, 4).map(item => card(item)).join('')}</div></section>
-  <section class="cta-band"><div class="container cta-inner"><div><span class="section-kicker">STILL LOOKING?</span><h2>맞는 매물이 없어도<br/>요청을 남길 수 있어요.</h2><p>구매 조건을 확인한 뒤 공개하면 판매자가 자신의 기기로 연결을 제안합니다.</p></div><button class="btn btn-white" data-nav="demand">내 구해요 확인 ${icon('arrow', 18)}</button></div></section>`;
-}
-
-function sellerHome() {
-  return `<main class="container page-main seller-home"><div class="page-intro"><span class="section-kicker">SELLER HOME</span><h1>내 기기를 찾는 구매자를 만나세요</h1><p>매물을 등록한 뒤 “맞는 구해요”에서 공개 구매 수요를 확인하고 연결을 요청할 수 있어요.</p></div>
-    <div class="hero-actions"><button class="btn btn-dark" data-new-listing>${icon('plus', 18)} 판매글 등록하기</button><button class="btn btn-light" data-nav="mine">내 판매글·맞는 구해요 ${icon('arrow', 18)}</button></div>
-    <div class="seller-overview"><div><strong>${state.myListings.filter(x => x.status === 'ACTIVE').length}</strong><span>검색 가능한 내 매물</span></div><div><strong>${state.connections.filter(x => x.sellerId).length}</strong><span>내 연결 요청</span></div></div>
-    <div class="section-heading"><div><span class="section-kicker">MY LISTINGS</span><h2>내 매물에서 시작</h2><p>활성 매물을 선택하면 조건이 맞는 구매 요청을 볼 수 있어요.</p></div><button class="text-link" data-nav="mine">전체 보기 ${icon('arrow', 18)}</button></div>
-    ${state.myListings.length ? `<div class="product-grid">${state.myListings.filter(x => x.status === 'ACTIVE').slice(0, 4).map(item => card(item)).join('')}</div>` : `<div class="empty-state"><h3>등록한 매물이 없어요</h3><p>먼저 판매글을 작성하고 직접 게시해 주세요.</p></div>`}</main>`;
+  const seller = currentRole() === 'seller';
+  const tokens = activeAgentTokens();
+  const used = tokens.filter(token => token.lastUsedAt).length;
+  return `<main class="agent-home"><section class="agent-home-hero"><div class="container agent-home-grid"><div class="agent-home-copy">
+    <span class="section-kicker">AGENT MARKET · MCP</span><h1>내 Agent에게 말하고,<br/><em>내가 검토해 결정해요.</em></h1>
+    <p>Cursor 같은 외부 MCP 지원 Agent에서 원하는 기기나 판매할 기기를 말해 주세요. Agent가 초안을 만들고 찾아보면, 이 사이트에서 내용을 확인하고 게시·공개를 결정합니다.</p>
+    <div class="hero-actions"><button class="btn btn-dark" data-nav="agent">${icon('spark', 18)} ${tokens.length ? 'Agent 연결 관리' : '내 Agent 연결하기'} ${icon('arrow', 18)}</button><button class="btn btn-light" data-nav="${seller ? 'mine' : 'buy'}">${seller ? '판매글 직접 작성' : '구매 조건 직접 입력'}</button></div>
+    <p class="agent-home-disclosure">대화는 연결한 외부 Agent 앱에서 진행함 · 최종 게시와 공개는 이 사이트에서 직접 승인함</p>
+    </div><aside class="agent-home-card"><span class="agent-home-card-label">MY AGENT CONNECTION</span><div class="agent-home-card-heading">${icon('spark', 25)}<strong>${tokens.length ? '연결용 토큰 발급됨' : 'Agent 연결 전'}</strong></div>
+    <p>${tokens.length ? `유효한 토큰 ${tokens.length}개 · 실제 접속 기록 ${used}개` : '연결 주소와 토큰을 외부 Agent 앱에 등록하면 시작할 수 있어요.'}</p><div class="agent-home-endpoint"><span>MCP 서버 주소</span><code>${esc(mcpUrl())}</code></div>
+    <button class="agent-home-card-link" data-nav="agent">연결 방법과 토큰 관리 ${icon('arrow', 16)}</button></aside></div></section>
+    <section class="container agent-home-workflow"><div class="section-heading"><div><span class="section-kicker">HOW IT WORKS</span><h2>Agent와 함께하는 흐름</h2></div></div>
+    <div class="agent-workflow-grid"><article><span>01</span><h3>Agent 연결</h3><p>이 사이트에서 권한을 정해 토큰을 발급하고 외부 MCP 지원 앱에 주소와 함께 등록해요.</p></article><article><span>02</span><h3>대화로 초안 작성</h3><p>${seller ? '판매할 기기를 설명하면 Agent가 판매글 초안을 정리해요.' : '원하는 기기와 예산을 말하면 Agent가 구매 조건 초안을 정리해요.'}</p></article><article><span>03</span><h3>사이트에서 직접 승인</h3><p>${seller ? '초안을 확인·보완한 뒤 판매글을 직접 게시해요.' : '조건을 확인해 검색하고, 필요하면 “구해요”를 직접 공개해요.'}</p></article></div>
+    <div class="agent-home-actions"><div><h2>지금 직접 시작할 수도 있어요</h2><p>Agent 연결 전에도 이 사이트에서 구매 조건 입력과 판매글 작성이 가능합니다.</p></div><div><button class="btn btn-outline" data-nav="buy">구매 조건 입력</button><button class="btn btn-outline" data-new-listing>판매글 작성</button><button class="btn btn-outline" data-nav="browse">등록 매물 보기</button></div></div>
+    <p class="sample-note">자체 매물에는 시연용 데이터가 포함됩니다. 구매 조건을 정리한 뒤 당근 공개 검색으로도 이동할 수 있어요.</p></section></main>`;
 }
 
 function browse() {
@@ -230,12 +230,17 @@ function sellerDemandPage() {
 
 function agentPage() {
   if (isDemo) return `<main class="container page-main"><div class="page-intro"><h1>Agent 연결</h1><p>외부 Agent 연결은 백엔드를 실행한 뒤 이용할 수 있어요.</p></div></main>`;
-  return `<main class="container page-main"><div class="page-intro"><span class="section-kicker">CONNECT YOUR AGENT</span><h1>외부 Agent 연결</h1><p>내 Agent가 초안을 만들고 매물을 찾을 수 있도록 필요한 권한만 선택하세요. 게시·공개·연결 결정은 Web에서 직접 합니다.</p></div>
+  const seller = currentRole() === 'seller';
+  const cursorConfig = JSON.stringify({ mcpServers: { 'agent-market': { url: mcpUrl(),
+    headers: { Authorization: 'Bearer <발급받은 토큰>' } } } }, null, 2);
+  return `<main class="container page-main agent-connect-page"><div class="page-intro"><span class="section-kicker">CONNECT YOUR AGENT</span><h1>내 Agent 연결하기</h1><p>대화는 Cursor 같은 외부 MCP 지원 앱에서 진행합니다. 이 사이트에서 연결 토큰을 발급하고, Agent가 만든 초안을 검토해 직접 게시·공개합니다.</p></div>
+    <div class="agent-setup-steps"><div><span>1</span><strong>연결 주소 확인</strong><p>아래 MCP 주소를 외부 앱에 등록</p></div><div><span>2</span><strong>토큰 발급</strong><p>필요한 권한만 선택해 한 번 복사</p></div><div><span>3</span><strong>Agent에서 대화</strong><p>초안을 요청하고 이 사이트에서 승인</p></div></div>
+    <section class="agent-endpoint"><div><span class="section-kicker">MCP SERVER</span><h2>연결 주소</h2><p>외부 Agent 앱의 원격 MCP 서버 설정에 입력하세요.</p></div><code>${esc(mcpUrl())}</code><button class="btn btn-outline" id="copy-mcp-url">주소 복사</button></section>
     <div class="result-summary">${icon('shield', 20)} <span>토큰은 발급 직후 한 번만 표시됩니다. 믿을 수 있는 개인 Agent 설정에만 입력하고, 필요 없으면 아래에서 폐기하세요.</span></div>
-    <section class="demand-editor"><div class="mine-head"><h2>새 Agent 토큰</h2></div><form id="token-form"><div class="form-grid">${field('토큰 이름 *', 'name', input('name', '예: 내 개인 Agent', '', 'text', true))}${field('유효 기간', 'expiresInDays', `<select name="expiresInDays"><option value="7">7일</option><option value="30" selected>30일</option><option value="90">90일</option></select>`)}</div><fieldset class="condition-field"><legend>사용 권한</legend><div class="choice-row"><label class="choice"><input type="checkbox" value="read" checked disabled /><span>매물·내 데이터 조회</span></label><label class="choice"><input type="checkbox" name="scopes" value="listing:write" /><span>판매 초안 작성</span></label><label class="choice"><input type="checkbox" name="scopes" value="purchase:write" /><span>구매 초안 작성</span></label><label class="choice"><input type="checkbox" name="scopes" value="search" /><span>확정 조건 검색</span></label></div></fieldset><div class="form-actions"><button class="btn btn-dark" type="submit">토큰 발급하기</button></div></form>
+    <section class="demand-editor"><div class="mine-head"><h2>새 Agent 토큰 발급</h2></div><form id="token-form"><div class="form-grid">${field('토큰 이름 *', 'name', input('name', '예: 내 Cursor Agent', '', 'text', true))}${field('유효 기간', 'expiresInDays', `<select name="expiresInDays"><option value="7">7일</option><option value="30" selected>30일</option><option value="90">90일</option></select>`)}</div><fieldset class="condition-field"><legend>사용 권한</legend><div class="choice-row"><label class="choice"><input type="checkbox" value="read" checked disabled /><span>매물·내 데이터 조회</span></label><label class="choice"><input type="checkbox" name="scopes" value="listing:write" ${seller ? 'checked' : ''} /><span>판매 초안 작성</span></label><label class="choice"><input type="checkbox" name="scopes" value="purchase:write" ${seller ? '' : 'checked'} /><span>구매 초안 작성</span></label><label class="choice"><input type="checkbox" name="scopes" value="search" ${seller ? '' : 'checked'} /><span>확정 조건 검색</span></label></div><small>역할에 맞는 권한을 먼저 선택했습니다. 필요하면 발급 전에 변경하세요.</small></fieldset><div class="form-actions"><button class="btn btn-dark" type="submit">토큰 발급하기</button></div></form>
     ${state.issuedToken ? `<div class="token-reveal" role="status"><strong>지금 한 번만 복사해 주세요</strong><code>${esc(state.issuedToken)}</code><button class="btn btn-outline" id="copy-token">토큰 복사</button></div>` : ''}</section>
-    <div class="mine-head draft-head"><h2>내 Agent 토큰 <span>${state.tokens.length}</span></h2></div>${state.tokens.length ? `<div class="draft-list">${state.tokens.map(token => `<div class="demand-row"><div><span class="status-pill ${token.revokedAt ? 'draft' : 'active'}">${token.revokedAt ? '폐기됨' : '사용 중'}</span><h3>${esc(token.name)}</h3><p>${esc(token.tokenPrefix)}… · ${token.scopes.map(esc).join(', ')} · 만료 ${token.expiresAt ? new Date(token.expiresAt).toLocaleDateString('ko-KR') : '없음'}</p></div>${token.revokedAt ? '' : `<button class="btn btn-outline" data-revoke-token="${esc(token.id)}">폐기</button>`}</div>`).join('')}</div>` : `<p class="no-drafts">발급한 토큰이 없습니다.</p>`}
-    <div class="agent-guide"><h2>연결 방법</h2><p>로컬 Agent 앱에서 MCP 서버를 실행할 때 발급한 토큰을 <code>AGENT_MARKET_TOKEN</code> 환경 변수로 설정하세요. 원격 MCP 주소와 설정 예시는 저장소의 MCP 연결 가이드에 있습니다.</p></div></main>`;
+    <div class="agent-guide"><h2>Cursor에서 사용하는 예</h2><p>Cursor의 개인 MCP 설정에 아래 내용을 넣고, <code>&lt;발급받은 토큰&gt;</code>을 방금 복사한 값으로 바꿉니다. 설정 파일은 공유 저장소에 올리지 마세요.</p><pre><code>${esc(cursorConfig)}</code></pre><p>연결 후 Cursor의 Agent 대화에서 “내 구매 조건 초안을 만들어 줘” 또는 “내 판매글 초안을 만들어 줘”라고 요청할 수 있습니다. 초안의 게시·공개·연결 수락은 이 사이트에서 직접 진행합니다.</p></div>
+    <div class="mine-head draft-head"><h2>발급한 Agent 토큰 <span>${state.tokens.length}</span></h2></div>${state.tokens.length ? `<div class="draft-list">${state.tokens.map(token => `<div class="demand-row"><div><span class="status-pill ${token.revokedAt ? 'draft' : 'active'}">${token.revokedAt ? '폐기됨' : token.expiresAt && Date.parse(token.expiresAt) <= Date.now() ? '만료됨' : token.lastUsedAt ? '접속 기록 있음' : '발급됨'}</span><h3>${esc(token.name)}</h3><p>${esc(token.tokenPrefix)}… · ${token.scopes.map(esc).join(', ')} · 만료 ${token.expiresAt ? new Date(token.expiresAt).toLocaleDateString('ko-KR') : '없음'}${token.lastUsedAt ? ` · 마지막 접속 ${new Date(token.lastUsedAt).toLocaleString('ko-KR')}` : ' · 아직 접속 기록 없음'}</p></div>${token.revokedAt ? '' : `<button class="btn btn-outline" data-revoke-token="${esc(token.id)}">폐기</button>`}</div>`).join('')}</div>` : `<p class="no-drafts">발급한 토큰이 없습니다. 위에서 먼저 발급해 주세요.</p>`}</main>`;
 }
 
 function render() {
@@ -393,6 +398,10 @@ function attach() {
       scopes: ['read', ...[...form.querySelectorAll('[name="scopes"]:checked')].map(item => item.value)] };
     try { const issued = await api.issueAgentToken(details); state.issuedToken = issued.token; await refresh(); state.notice = '토큰을 발급했습니다. 지금 복사해 주세요.'; render(); }
     catch (error) { showError(error); }
+  });
+  root.querySelector('#copy-mcp-url')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(mcpUrl()); state.notice = 'MCP 서버 주소를 복사했습니다.'; render(); }
+    catch { showError(new Error('주소를 복사할 수 없습니다. 표시된 주소를 직접 선택해 복사해 주세요.')); }
   });
   root.querySelector('#copy-token')?.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(state.issuedToken); state.notice = '토큰을 복사했습니다.'; render(); }

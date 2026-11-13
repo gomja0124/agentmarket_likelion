@@ -36,7 +36,8 @@ test('Web login creates a server session and forwards only its verified identity
     const landing = await fetch(`${webUrl}/`);
     assert.equal(landing.status, 200);
     const landingHtml = await landing.text();
-    assert.match(landingHtml, /찾는 조건을 말하면/);
+    assert.match(landingHtml, /Agent와 함께 찾고/);
+    assert.match(landingHtml, /href="\/register"/);
     assert.match(landingHtml, /href="\/login"/);
     assert.doesNotMatch(landingHtml, /src\/app\.js/);
     assert.equal((await fetch(`${webUrl}/src/landing.css`)).status, 200);

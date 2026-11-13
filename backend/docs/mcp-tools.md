@@ -1,6 +1,6 @@
 # MCP 서버 — 외부 Agent 연결
 
-외부 개인 Agent(Claude Desktop, Cursor, ChatGPT 등)가 Agent Market에 접속하는 창구다. `mcp/`는 [Backend API](backend-api.md)를 그대로 감싸는 얇은 어댑터이며 로직을 갖지 않는다. 상태 전이, 권한, 검증은 전부 서버가 판정하고 어댑터는 그 결과를 Agent가 이해할 수 있는 형태로 돌려준다.
+Cursor처럼 원격 MCP 주소와 Bearer 인증 헤더를 설정할 수 있는 외부 Agent 앱이 Agent Market에 접속하는 창구다. 이 사이트 안에 AI 채팅 화면은 없다. `mcp/`는 [Backend API](backend-api.md)를 그대로 감싸는 얇은 어댑터이며 로직을 갖지 않는다. 상태 전이, 권한, 검증은 전부 서버가 판정하고 어댑터는 그 결과를 Agent가 이해할 수 있는 형태로 돌려준다.
 
 ```
 [사용자] ── 대화 ──▶ [외부 Agent] ── MCP ──▶ mcp/ ── HTTP (Bearer 토큰) ──▶ server/
@@ -95,7 +95,7 @@ docker compose up -d --build
 | api | 8080 | `GET /api/health` |
 | mcp | 8090 | `GET /healthz` |
 
-TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 사용자에게 알려줄 것은 `https://<도메인>/mcp`와 Web에서 발급한 토큰 두 가지다. Claude Desktop/claude.ai의 커스텀 커넥터나 Cursor의 MCP 설정에 URL을 넣고 Authorization 헤더에 `Bearer <token>`을 넣으면 된다.
+TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 사용자에게 알려줄 것은 `https://<도메인>/mcp`와 Web에서 발급한 토큰 두 가지다. 예를 들어 [Cursor의 공식 MCP 설정](https://cursor.com/docs/mcp)은 원격 URL과 `Authorization` 헤더를 지원한다. 개인 MCP 설정에 URL을 넣고 헤더를 `Bearer <token>`으로 설정한다. 토큰이 포함된 설정 파일은 Git에 올리지 않는다. 다른 Agent 앱은 인증 방식과 계정 권한이 달라 별도 검증이 필요하다.
 
 원격 서버의 보호 장치: 요청마다 토큰 검증(60초 캐시, 폐기 시 다음 검증에서 차단), 토큰별 분당 요청 제한(기본 120, 초과 시 429), 본문 1MB 제한, 백엔드 호출 15초 타임아웃, JSON 구조화 로그, SIGTERM 시 정상 종료.
 
