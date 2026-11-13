@@ -1,6 +1,6 @@
 # AWS EC2 배포 경로
 
-2026-11-13 기준 서울 리전의 `gomja-market-backend` EC2 인스턴스에서 `dokyeong-merge`의 `e6162bf`을 배포했다. 공개 주소 `https://gomja-market.store`의 첫 화면과 앱 컨테이너의 Healthy 상태를 확인했다. 운영 Step 2 MCP 도구를 켜고, 임시 계정으로 공개 회원가입·세션·토큰 발급·원격 MCP 조회·토큰 즉시 폐기까지 검증했다. 서버의 비추적 `compose.production.yml` 오버라이드는 보존한다.
+2026-11-13 기준 서울 리전의 `gomja-market-backend` EC2 인스턴스에서 `dokyeong-merge`의 `cb9b268`을 배포했다. 공개 주소 `https://gomja-market.store`의 첫 화면과 앱 컨테이너의 Healthy 상태를 확인했다. 운영 Step 2 MCP 도구를 켜고, 임시 계정으로 공개 회원가입·세션·토큰 발급·원격 MCP 조회·토큰 즉시 폐기까지 검증했다. 실제 Claude 대화에서도 조회 전용 토큰으로 `whoami`·`browse_listings`를 호출했다. 서버의 비추적 `compose.production.yml` 오버라이드는 보존한다.
 
 ## 필요한 환경
 

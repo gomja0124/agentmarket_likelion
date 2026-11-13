@@ -97,7 +97,7 @@ docker compose up -d --build
 
 TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 사용자에게 알려줄 것은 `https://<도메인>/mcp`와 Web에서 발급한 토큰 두 가지다. 예를 들어 [Cursor의 공식 MCP 설정](https://cursor.com/docs/mcp)은 원격 URL과 `Authorization` 헤더를 지원한다. 개인 MCP 설정에 URL을 넣고 헤더를 `Bearer <token>`으로 설정한다. 토큰이 포함된 설정 파일은 Git에 올리지 않는다.
 
-[Claude의 원격 Custom connector 안내](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)에 따르면 Claude Desktop에서도 `Customize → Connectors → + Add → Add custom connector`로 공개 `/mcp` URL을 등록하고, `Authentication`을 `No sign in`으로 정한 뒤 `Request headers`에 `Authorization: Bearer <token>`을 넣을 수 있다. 대화의 `+ → Connectors`에서 이 연결을 켠다. Claude의 원격 연결은 Anthropic 클라우드에서 서비스에 접속하고 고정 헤더 값을 암호화해 저장하므로, 개인 토큰에 필요한 scope만 부여한다. 실제 Claude 앱 계정에서의 연결 성공은 별도 검증한다.
+[Claude의 원격 Custom connector 안내](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)에 따르면 Claude Desktop에서도 `Customize → Connectors → + Add → Add custom connector`로 공개 `/mcp` URL을 등록하고, `Authentication`을 `No sign in`으로 정한 뒤 `Request headers`에 `Authorization: Bearer <token>`을 넣을 수 있다. 대화의 `+ → Connectors`에서 이 연결을 켠다. Claude의 원격 연결은 Anthropic 클라우드에서 서비스에 접속하고 고정 헤더 값을 암호화해 저장하므로, 개인 토큰에 필요한 scope만 부여한다. 2026-11-13 실제 Claude 계정에서 `read` 전용 7일 토큰을 연결해 11개 조회 도구가 나타나고, 대화에서 `whoami`와 `browse_listings`가 성공하는 것을 확인했다. 초안 작성 도구는 이 토큰에 나타나지 않는다.
 
 원격 서버의 보호 장치: 요청마다 백엔드에서 토큰 검증(폐기 즉시 차단), 토큰별 분당 요청 제한(기본 120, 초과 시 429), 본문 1MB 제한, 백엔드 호출 15초 타임아웃, JSON 구조화 로그, SIGTERM 시 정상 종료.
 
