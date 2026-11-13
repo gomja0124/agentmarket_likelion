@@ -262,7 +262,7 @@ function chatPage() {
   if (!connection) return currentRole() === 'seller' ? mine() : demandPage();
   return `<main class="container page-main chat-page"><button class="back-link" data-nav="${currentRole() === 'seller' ? 'mine' : 'demand'}">← 연결 내역으로 돌아가기</button>
     <div class="page-intro"><span class="section-kicker">ACCEPTED CONNECTION</span><h1>연결된 상대와 대화</h1><p>${esc(connection.listingTitle || '매물')} · 구매자가 연결을 수락한 뒤에만 대화할 수 있음.</p></div>
-    <div class="result-summary">${icon('shield', 20)} <span>공공장소에서의 확인 일정만 조율하세요. 전화번호·이메일·외부 링크·계좌번호는 전송할 수 없음. 정확한 주소나 선입금도 요청하지 마세요. 대화는 30일 뒤 삭제되며 이 서비스는 결제를 처리하지 않음.</span></div>
+    <div class="result-summary">${icon('shield', 20)} <span>공공장소에서의 확인 일정만 조율하세요. 전화번호·이메일·외부 링크·계좌번호는 전송할 수 없음. 정확한 주소나 선입금도 요청하지 마세요. 대화는 30일 뒤 서비스 목록에서 삭제됨. 운영 백업에는 더 오래 남을 수 있음. 이 서비스는 결제를 처리하지 않음.</span></div>
     <div class="chat-thread" aria-label="거래 대화">${state.chatMessages.length ? state.chatMessages.map(message => `<div class="chat-message ${message.fromMe ? 'mine' : ''}"><strong>${message.fromMe ? '나' : '상대방'}</strong><p>${esc(message.body)}</p><small>${new Date(message.createdAt).toLocaleString('ko-KR')}</small></div>`).join('') : '<p class="no-drafts">아직 대화가 없음. 기기 상태 확인이나 공공장소 만남 일정을 이야기해 보세요.</p>'}</div>
     <form id="chat-form" class="chat-form"><label class="field"><span class="field-label">메시지 · 최대 500자</span><textarea name="message" maxlength="500" rows="3" required placeholder="예: 토요일 오후 공공장소에서 기기 상태를 확인할 수 있나요?"></textarea></label><button class="btn btn-dark" type="submit">메시지 보내기</button></form></main>`;
 }
