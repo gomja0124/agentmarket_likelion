@@ -135,6 +135,7 @@ function categorySchema(category) {
 export function createApiServer({
   dbPath, seed = true, store = new Store({ dbPath, seed }),
   auth = authConfigFromEnv(), corsOrigin = process.env.AGENT_MARKET_CORS_ORIGIN || '*',
+  mcpStep2Enabled = process.env.AGENT_MARKET_ENABLE_STEP2 === '1',
 } = {}) {
   const server = createServer(async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', corsOrigin);
@@ -156,7 +157,8 @@ export function createApiServer({
 
       // health는 인증 없이 열어둔다(배포 환경 readiness 확인용).
       if (method === 'GET' && segments.join('/') === 'api/health') {
-        send(response, 200, { status: 'ok', database: 'sqlite', step: 1, authMode: auth.mode }); return;
+        send(response, 200, { status: 'ok', database: 'sqlite', step: mcpStep2Enabled ? 2 : 1,
+          mcpStep2Enabled, authMode: auth.mode }); return;
       }
 
       context = authenticate(request, store, auth, now());

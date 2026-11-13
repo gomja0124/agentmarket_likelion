@@ -25,7 +25,7 @@ An Agent may create/update drafts and request search for a purchase request alre
 
 | Method and path | Purpose | Success |
 | --- | --- | --- |
-| `GET /api/health` | Health | `{ status, database, step }` |
+| `GET /api/health` | Health and enabled MCP feature stage | `{ status, database, step, mcpStep2Enabled, authMode }` |
 | `GET /api/categories/:category/schema` | PHONE/TABLET fields and question hints | Category schema object |
 | `GET /api/listings?status=ACTIVE&q=` | Public active listings, optional text query | `Listing[]` |
 | `GET /api/listings/:id` | Active listing detail (inactive detail is owner-only) | `Listing` |
@@ -65,6 +65,8 @@ Errors use `{ "code": "...", "message": "...", "details": {} }` where applicable
 | 422 | `VALIDATION_ERROR` | Invalid fields or missing required values |
 
 The local identity headers are a temporary adapter seam, not an authorization system. Purchase requests are only returned from the owner-scoped `mine` route; no seller-facing private request route exists. Step 2 public demand routes are documented in [step2-api.md](step2-api.md).
+
+`step` is `2` when `AGENT_MARKET_ENABLE_STEP2=1` and `1` otherwise. `mcpStep2Enabled` reports the same feature flag explicitly, including in the health object returned by the MCP `get_market_guide` tool.
 
 ## Data relationships
 

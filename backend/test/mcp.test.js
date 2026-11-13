@@ -21,7 +21,7 @@ const SPEC_TOOLS = ['get_category_schema', 'create_listing_draft', 'update_listi
 const HELPER_TOOLS = ['whoami', 'get_market_guide', 'browse_listings', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests'];
 
 async function withMcp(run, { userId = demoUser, token = '', apiOptions = {}, step2 = false } = {}) {
-  const api = createApiServer({ dbPath: ':memory:', ...apiOptions });
+  const api = createApiServer({ dbPath: ':memory:', mcpStep2Enabled: step2, ...apiOptions });
   await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${api.address().port}`;
   const client = new Client({ name: 'e2e-test', version: '0.0.0' });
@@ -65,6 +65,7 @@ test('tool set matches 03 MCP Tools Spec and exposes no publish/confirm', async 
     assert.match(client.getInstructions() || '', /게시.*사람/);
     const guide = await call('get_market_guide');
     assert.equal(guide.value.apiHealth.step, 1);
+    assert.equal(guide.value.apiHealth.mcpStep2Enabled, false);
     assert.equal(guide.value.webUrl, 'http://web.local');
     const schema = await call('get_category_schema', { category: 'PHONE' });
     assert.deepEqual(schema.value.requiredFields, ['category', 'model', 'priceKrw']);
@@ -75,6 +76,10 @@ test('tool set matches 03 MCP Tools Spec and exposes no publish/confirm', async 
 
 test('Step 2 opt-in tools can propose a private demand but cannot publish or connect', async () => {
   await withMcp(async ({ call, human, client }) => {
+    const guide = await call('get_market_guide');
+    assert.equal(guide.value.step2Enabled, true);
+    assert.equal(guide.value.apiHealth.step, 2);
+    assert.equal(guide.value.apiHealth.mcpStep2Enabled, true);
     const names = (await client.listTools()).tools.map(tool => tool.name);
     assert.ok(names.includes('create_public_demand_draft'));
     assert.ok(names.includes('browse_matching_public_demands'));
