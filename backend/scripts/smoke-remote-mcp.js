@@ -18,7 +18,9 @@ const loginName = `smoke-${randomUUID()}`;
 const password = randomBytes(24).toString('base64url');
 const mcpUrl = new URL('/mcp', base);
 const client = new Client({ name: 'agent-market-production-smoke', version: '1.0.0' });
+const buyerClient = new Client({ name: 'agent-market-buyer-smoke', version: '1.0.0' });
 let connected = false;
+let buyerConnected = false;
 let cookie;
 let csrf;
 let userId;
@@ -77,6 +79,42 @@ try {
   }
   console.log(`Public Web signup, session and remote MCP OK: ${tools.length} read-only tools; Step 2 ${guide.structuredContent?.step2Enabled ? 'on' : 'off'}.`);
 
+  const buyerIssued = await fetch(new URL('/api/agent-tokens', base), {
+    method: 'POST',
+    headers: { Cookie: cookie, Origin: base.origin, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'buyer-search-smoke', scopes: ['purchase:write', 'purchase:confirm', 'search'], expiresInDays: 1 }),
+  });
+  assert.equal(buyerIssued.status, 201, '구매 검색용 Agent 토큰 발급에 실패했습니다.');
+  const buyerToken = (await buyerIssued.json()).token;
+  await buyerClient.connect(new StreamableHTTPClientTransport(mcpUrl, {
+    requestInit: { headers: { Authorization: `Bearer ${buyerToken}` } },
+  }));
+  buyerConnected = true;
+  const buyerTools = (await buyerClient.listTools()).tools.map(tool => tool.name);
+  assert.ok(buyerTools.includes('create_purchase_request_draft'));
+  assert.ok(buyerTools.includes('confirm_purchase_request'));
+  assert.ok(buyerTools.includes('search_listings'));
+  const callBuyer = async (name, args) => {
+    const result = await buyerClient.callTool({ name, arguments: args });
+    assert.ok(!result.isError, `${name} 도구가 실패했습니다: ${result.content?.[0]?.text || ''}`);
+    return result.structuredContent;
+  };
+  const prompt = '시연용 매물도 포함해서 핸드폰 Galaxy S23 256GB 상태 좋음 480000원 이하 찾아줘';
+  const draft = await callBuyer('create_purchase_request_draft', { naturalLanguageRequest: prompt });
+  assert.equal(draft.structuredConditions.maxBudgetKrw, 480000);
+  assert.deepEqual(draft.structuredConditions.conditionPreferences, ['GOOD']);
+  const confirmed = await callBuyer('confirm_purchase_request', {
+    purchaseRequestId: draft.requestId, expectedUpdatedAt: draft.purchaseRequest.updatedAt,
+    userSearchRequest: prompt,
+  });
+  assert.equal(confirmed.status, 'CONFIRMED');
+  const matched = await callBuyer('search_listings', { purchaseRequestId: draft.requestId, includeSamples: true });
+  assert.ok(matched.results.some(result => result.matchStatus === 'MATCH' &&
+    result.listing.model === 'Galaxy S23' && result.listing.storageGb === 256 &&
+    result.listing.priceKrw <= 480000 && result.listing.condition === 'GOOD'),
+  '시연용 Galaxy S23 매칭 결과가 없습니다.');
+  console.log('Remote buyer MCP draft, chat confirmation and sample matching OK.');
+
   const revoked = await fetch(new URL(`/api/agent-tokens/${agentTokenId}`, base), {
     method: 'DELETE', headers: { Cookie: cookie, Origin: base.origin, 'X-CSRF-Token': csrf },
   });
@@ -90,10 +128,15 @@ try {
   console.log('Revoked token rejected immediately.');
 } finally {
   if (connected) await client.close().catch(() => {});
+  if (buyerConnected) await buyerClient.close().catch(() => {});
   const testUserId = store.getWebCredential(loginName)?.userId;
   if (testUserId && (!userId || testUserId === userId)) {
     store.db.exec('BEGIN');
     try {
+      store.db.prepare('DELETE FROM search_results WHERE purchase_request_id IN (SELECT id FROM purchase_requests WHERE buyer_id = ?)').run(testUserId);
+      store.db.prepare('DELETE FROM purchase_requests WHERE buyer_id = ?').run(testUserId);
+      store.db.prepare('DELETE FROM agent_action_logs WHERE user_id = ?').run(testUserId);
+      store.db.prepare('DELETE FROM idempotency_keys WHERE user_id = ?').run(testUserId);
       store.db.prepare('DELETE FROM agent_tokens WHERE user_id = ?').run(testUserId);
       store.db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(testUserId);
       store.db.prepare('DELETE FROM web_recovery_codes WHERE user_id = ?').run(testUserId);
