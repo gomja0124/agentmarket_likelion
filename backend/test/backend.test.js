@@ -6,8 +6,8 @@ import { RULE_VERSION } from '../server/matching.js';
 const demoUser = '00000000-0000-4000-8000-000000000001';
 const otherUser = '00000000-0000-4000-8000-000000000099';
 
-async function withApi(run) {
-  const server = createApiServer({ dbPath: ':memory:' });
+async function withApi(run, options = {}) {
+  const server = createApiServer({ dbPath: ':memory:', ...options });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   const base = `http://127.0.0.1:${address.port}`;
@@ -18,12 +18,13 @@ async function withApi(run) {
   }
 }
 
-async function call(base, path, { method = 'GET', body, userId, actorType, requestId } = {}) {
+async function call(base, path, { method = 'GET', body, userId, actorType, requestId, webSecret } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (userId) headers['X-User-Id'] = userId;
   if (actorType) headers['X-Actor-Type'] = actorType;
   if (requestId) headers['Idempotency-Key'] = requestId;
+  if (webSecret) headers['X-Web-Secret'] = webSecret;
   const response = await fetch(`${base}${path}`, {
     method,
     headers,
@@ -41,6 +42,39 @@ test('health and seed expose at least 12 active phone/tablet listings', async ()
     assert.equal(listings.value.length, 12);
     assert.deepEqual([...new Set(listings.value.map(item => item.category))].sort(), ['PHONE', 'TABLET']);
   });
+});
+
+test('strict service shows real seller inventory by default and removes sold items from matching', async () => {
+  const webSecret = 'strict-listing-test-secret-123';
+  await withApi(async (base, server) => {
+    server.store.ensureUser(otherUser);
+    const asSeller = { userId: otherUser, webSecret };
+    assert.equal((await call(base, '/api/listings?status=ACTIVE', asSeller)).value.length, 0);
+    assert.equal((await call(base, '/api/listings?status=ACTIVE&includeSamples=true', asSeller)).value.length, 12);
+
+    const draft = await call(base, '/api/listing-drafts', { ...asSeller, method: 'POST',
+      body: { category: 'PHONE', model: 'iPhone 15 Pro', priceKrw: 700000, title: '실제 판매자 등록 매물' } });
+    assert.equal(draft.status, 201);
+    const published = await call(base, `/api/listing-drafts/${draft.value.id}/publish`, { ...asSeller, method: 'POST' });
+    assert.equal(published.status, 201);
+    assert.equal(published.value.isSample, false);
+    const real = await call(base, '/api/listings?status=ACTIVE', asSeller);
+    assert.deepEqual(real.value.map(item => item.id), [published.value.id]);
+
+    const buyer = await call(base, '/api/purchase-requests', { ...asSeller, method: 'POST',
+      body: { category: 'PHONE', maxBudgetKrw: 900000, modelQuery: 'iPhone 15 Pro' } });
+    await call(base, `/api/purchase-requests/${buyer.value.id}/confirm`, { ...asSeller, method: 'POST' });
+    const search = await call(base, `/api/purchase-requests/${buyer.value.id}/search`, { ...asSeller, method: 'POST' });
+    assert.deepEqual(search.value.map(item => item.listingId), [published.value.id]);
+
+    const sold = await call(base, `/api/listings/${published.value.id}/sold`, { ...asSeller, method: 'POST' });
+    assert.equal(sold.status, 200);
+    assert.equal(sold.value.status, 'INACTIVE');
+    assert.ok(sold.value.soldAt);
+    assert.equal((await call(base, '/api/listings?status=ACTIVE', asSeller)).value.length, 0);
+    assert.equal((await call(base, `/api/listings/${published.value.id}/reactivate`, { ...asSeller, method: 'POST' })).status, 409);
+    assert.deepEqual((await call(base, `/api/purchase-requests/${buyer.value.id}/search`, { ...asSeller, method: 'POST' })).value, []);
+  }, { auth: { mode: 'strict', webSecret } });
 });
 
 test('Agent draft writes are idempotent, and only the owner can publish it', async () => {

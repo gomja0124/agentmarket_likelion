@@ -74,6 +74,21 @@
 .karrot-panel small { color: #728175; font-size: 11px; }
 .karrot-panel .btn { flex: none; }
 @media(max-width:700px) { .karrot-panel { display: block; padding: 20px; } .karrot-panel .btn { margin-top: 17px; width: 100%; } }
+.inventory-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:20px 0 18px}
+.brand{text-decoration:none}
+.brand-mark{display:flex;align-items:center;justify-content:center}
+.inventory-bar .list-count{margin:0}
+.sample-toggle{display:inline-flex;align-items:center;gap:8px;color:#5e725f;font-size:13px;font-weight:700;cursor:pointer}
+.sample-toggle input{accent-color:#315e3b;width:17px;height:17px}
+.result-summary+.sample-toggle{margin:-16px 0 30px}
+.seller-invite{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 24px;border:1px solid #dce9dd;border-radius:14px;background:#f5faf4}
+.seller-invite strong{color:#244832;font-size:15px}
+.seller-invite p{margin:6px 0 0;color:#6a806e;font-size:12px;line-height:1.6}
+.seller-invite .btn{flex:none}
+.photo-preview{display:flex;align-items:end;gap:12px;margin-top:10px}
+.photo-preview img{width:110px;height:100px;object-fit:cover;border-radius:10px;border:1px solid #dce7dc}
+.photo-preview button{border:0;background:none;color:#9a554a;font-size:12px;font-weight:800;text-decoration:underline;padding:8px 0}
+@media(max-width:700px){.inventory-bar,.seller-invite{align-items:flex-start;flex-direction:column}.seller-invite .btn{width:100%}}
 .agent-home-hero { background: linear-gradient(120deg,#f1f7ee 0%,#f9faf6 65%,#edf4eb 100%); padding: 76px 0 74px; }
 .agent-home-grid { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(310px,.85fr); align-items: center; gap: 64px; }
 .agent-home-copy h1 { max-width: 700px; margin: 17px 0 22px; font-family: 'Plus Jakarta Sans',Manrope,sans-serif; font-size: clamp(36px,4.1vw,57px); line-height: 1.23; letter-spacing: -.065em; }

@@ -248,9 +248,10 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
 
   register('read', 'browse_listings', {
     title: '공개 매물 둘러보기',
-    description: '구매 조건 없이 ACTIVE 매물을 텍스트로 훑어본다. 시세 파악용. 조건 기반 매칭은 search_listings를 쓴다.',
-    inputSchema: { query: z.string().max(200).optional().describe('모델명 등 검색어') },
-  }, async ({ query }) => ({ listings: await api.listListings(query || '') }));
+    description: '구매 조건 없이 실제 판매자가 등록한 ACTIVE 매물을 조회한다. 시연용 12개는 기본 제외하며 includeSamples=true에서만 표시한다. 조건 기반 매칭은 search_listings를 쓴다.',
+    inputSchema: { query: z.string().max(200).optional().describe('모델명 등 검색어'),
+      includeSamples: z.boolean().optional().describe('시연용 매물도 포함할 때만 true') },
+  }, async ({ query, includeSamples }) => ({ listings: await api.listListings(query || '', includeSamples === true) }));
 
   register('read', 'list_my_listing_drafts', {
     title: '내 판매 초안 목록',
@@ -336,10 +337,11 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
 
   register('search', 'search_listings', {
     title: '확정된 구매 조건으로 검색·매칭',
-    description: '사람이 Web에서 확정한 PurchaseRequest로 자체 DB를 Rule-based 매칭한다. 확정 전이면 INVALID_STATE로 거부된다. 결과의 NEEDS_CONFIRMATION은 정보 부족이지 적합이 아니다.',
-    inputSchema: { purchaseRequestId: UUID, requestId: requestIdField },
-  }, async ({ purchaseRequestId, requestId }) => {
-    const results = await api.search(purchaseRequestId, requestId);
+    description: '사람이 Web에서 확정한 PurchaseRequest로 실제 판매자 매물을 Rule-based 매칭한다. 시연용은 기본 제외하며 includeSamples=true에서만 포함한다. 확정 전이면 INVALID_STATE로 거부된다.',
+    inputSchema: { purchaseRequestId: UUID, requestId: requestIdField,
+      includeSamples: z.boolean().optional().describe('시연용 매물도 포함할 때만 true') },
+  }, async ({ purchaseRequestId, requestId, includeSamples }) => {
+    const results = await api.search(purchaseRequestId, requestId, includeSamples === true);
     return { purchaseRequestId, summary: summarizeSearch(results), results };
   });
 

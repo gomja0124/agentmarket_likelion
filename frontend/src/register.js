@@ -1,5 +1,10 @@
 const form = document.querySelector('#register-form');
 const message = document.querySelector('#register-error');
+const selling = new URLSearchParams(location.search).get('next') === 'sell';
+if (selling) {
+  form.querySelector('.auth-switch a').href = '/login?next=sell';
+  form.querySelector('p').textContent = '계정을 만들면 바로 내 매물 등록 화면으로 이동합니다.';
+}
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
@@ -18,7 +23,7 @@ form.addEventListener('submit', async event => {
         password: form.elements.password.value }),
     });
     if (!response.ok) throw new Error((await response.json()).message || '회원가입에 실패했습니다.');
-    location.assign('/');
+    location.assign(selling ? '/#sell' : '/');
   } catch (error) {
     message.textContent = error.message;
     message.hidden = false;

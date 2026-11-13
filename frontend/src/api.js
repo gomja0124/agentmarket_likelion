@@ -57,8 +57,8 @@ export const api = {
   async authMode() {
     return isDemo ? 'local' : (await request('/api/health')).authMode;
   },
-  async listListings() {
-    return isDemo ? read().listings : request('/api/listings?status=ACTIVE');
+  async listListings(includeSamples = false) {
+    return isDemo ? read().listings : request(`/api/listings?status=ACTIVE${includeSamples ? '&includeSamples=true' : ''}`);
   },
   async getListing(listingId) {
     return isDemo ? read().listings.find(item => item.id === listingId) : request(`/api/listings/${encodeURIComponent(listingId)}`);
@@ -127,8 +127,16 @@ export const api = {
     const state = read();
     const listing = state.listings.find(item => item.id === listingId);
     if (!listing || listing.sellerId !== activeDemoUser()) throw new Error('내 판매글만 다시 활성화할 수 있습니다.');
-    if (listing.status !== 'INACTIVE') throw new Error('비활성 매물만 다시 활성화할 수 있습니다.');
+    if (listing.status !== 'INACTIVE' || listing.soldAt) throw new Error('판매 완료하지 않은 비활성 매물만 다시 활성화할 수 있습니다.');
     listing.status = 'ACTIVE'; listing.updatedAt = new Date().toISOString(); write(state); return listing;
+  },
+  async markListingSold(listingId) {
+    if (!isDemo) return request(`/api/listings/${encodeURIComponent(listingId)}/sold`, { method: 'POST' });
+    const state = read();
+    const listing = state.listings.find(item => item.id === listingId);
+    if (!listing || listing.sellerId !== activeDemoUser() || listing.status !== 'ACTIVE') throw new Error('내 활성 매물만 판매 완료 처리할 수 있습니다.');
+    listing.status = 'INACTIVE'; listing.soldAt = new Date().toISOString(); listing.updatedAt = listing.soldAt;
+    write(state); return listing;
   },
   async savePurchaseRequest(value) {
     if (!isDemo) return value.id
@@ -153,9 +161,9 @@ export const api = {
     if (requestMissing(item).length) throw new Error('기기 종류와 최대 예산을 입력해 주세요.');
     item.status = 'CONFIRMED'; item.updatedAt = new Date().toISOString(); write(state); return item;
   },
-  async search(requestId) {
+  async search(requestId, includeSamples = false) {
     if (!isDemo) {
-      const results = await request(`/api/purchase-requests/${requestId}/search`, { method: 'POST' });
+      const results = await request(`/api/purchase-requests/${requestId}/search${includeSamples ? '?includeSamples=true' : ''}`, { method: 'POST' });
       return Promise.all(results.filter(result => result.matchStatus !== 'EXCLUDED').map(async result => ({
         ...result, listing: result.listing || await api.getListing(result.listingId),
       })));

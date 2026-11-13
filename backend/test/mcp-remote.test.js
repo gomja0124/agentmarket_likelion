@@ -116,8 +116,10 @@ test('full buyer flow over remote transport with human confirmation in between',
     assert.equal((await human('POST', `/api/purchase-requests/${id}/confirm`)).status, 200);
     const search = await b.call('search_listings', { purchaseRequestId: id });
     assert.equal(search.isError, false);
-    assert.equal(search.value.summary.total, 12);
-    assert.ok(search.value.results.every(r => r.matchStatus !== 'MATCH' || r.listing.category === 'TABLET'));
+    assert.equal(search.value.summary.total, 0, '운영 검색은 시연용 매물을 기본 제외한다');
+    const demoSearch = await b.call('search_listings', { purchaseRequestId: id, includeSamples: true });
+    assert.equal(demoSearch.value.summary.total, 12);
+    assert.ok(demoSearch.value.results.every(r => r.matchStatus !== 'MATCH' || r.listing.category === 'TABLET'));
     await b.client.close();
   });
 });

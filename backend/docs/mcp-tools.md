@@ -127,7 +127,7 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 | `update_listing_draft` | listing:write | `draftId`, `patch{...}` | 위와 같음 + `updatedDraft` |
 | `create_purchase_request_draft` | purchase:write | `category?`, `naturalLanguageRequest?`, `knownConstraints{category, modelQuery, maxBudgetKrw, storageGb, conditionPreferences}` | `requestId`, `structuredConditions`, `missingFields`, `nextQuestions`, `readyForConfirmation`, `humanApprovalRequired`, `nextAction`, `purchaseRequest` |
 | `update_purchase_request_draft` | purchase:write | `requestId`, `patch{...}` | 위와 같음 + `updatedRequest` |
-| `search_listings` | search | `purchaseRequestId` | `summary{total, MATCH, NEEDS_CONFIRMATION, EXCLUDED, ruleVersion}`, `results: SearchResult[]` (각 후보에 `listing`, `matchedFields`, `unmetFields`, `missingFields`) |
+| `search_listings` | search | `purchaseRequestId`, `includeSamples?` | `summary{total, MATCH, NEEDS_CONFIRMATION, EXCLUDED, ruleVersion}`, `results: SearchResult[]` (각 후보에 `listing`, `matchedFields`, `unmetFields`, `missingFields`) |
 | `get_listing` | read | `listingId` | `Listing` (구조화 필드 + `images`) |
 
 `nextQuestions`는 비어 있는 항목에 대한 질문을 스펙 우선순위로 만든다. 판매: category → model → priceKrw → storageGb → condition → accessories. 구매: category → maxBudgetKrw → modelQuery → storageGb. 백엔드는 값을 추정하지 않으므로 Agent가 사용자에게 묻고 `update_*`로 채운다.
@@ -138,12 +138,12 @@ TLS는 앞단 리버스 프록시(Caddy, nginx, Cloudflare)에서 종료한다. 
 | --- | --- |
 | `whoami` | 대리하는 사용자, 토큰 이름, scope |
 | `get_market_guide` | 할 수 있는 일·없는 일, 판매·구매 흐름, 승인 지점. 가장 먼저 호출 |
-| `browse_listings` | 구매 조건 없이 ACTIVE 매물 텍스트 검색 (시세 파악용) |
+| `browse_listings` | 구매 조건 없이 ACTIVE 실매물 텍스트 검색. 운영에서는 시연용을 기본 제외하며 `includeSamples: true`로만 포함 |
 | `list_my_listing_drafts` | 내 판매 초안 + `nextAction` |
 | `list_my_listings` | 내 매물 (ACTIVE/INACTIVE) |
 | `list_my_purchase_requests` | 내 구매 조건 + `nextAction` |
 
-tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성화(`deactivate`), 재활성화(`reactivate`), 토큰 발급·폐기. 서버도 Agent면 403으로 거부한다. Step 2 조회·초안 도구는 아래 플래그를 켠 경우에만 제공한다.
+tool로 노출하지 않는 것: 게시(`publish`), 확정(`confirm`), 비활성화(`deactivate`), 재활성화(`reactivate`), 판매 완료(`sold`), 토큰 발급·폐기. 서버도 Agent면 403으로 거부한다. Step 2 조회·초안 도구는 아래 플래그를 켠 경우에만 제공한다.
 
 ## 승인 지점 (스펙 3절)
 

@@ -112,6 +112,7 @@ function failedActionFor(path) {
   if (path.startsWith('/api/listing-drafts/')) return ['UPDATE_LISTING_DRAFT', 'ListingDraft'];
   if (path.endsWith('/deactivate')) return ['DEACTIVATE_LISTING', 'Listing'];
   if (path.endsWith('/reactivate')) return ['REACTIVATE_LISTING', 'Listing'];
+  if (path.endsWith('/sold')) return ['MARK_LISTING_SOLD', 'Listing'];
   if (path === '/api/purchase-requests') return ['CREATE_PURCHASE_REQUEST_DRAFT', 'PurchaseRequest'];
   if (path.endsWith('/confirm')) return ['CONFIRM_PURCHASE_REQUEST', 'PurchaseRequest'];
   if (path.endsWith('/search')) return ['SEARCH_LISTINGS', 'PurchaseRequest'];
@@ -193,7 +194,8 @@ export function createApiServer({
       if (method === 'GET' && segments.join('/') === 'api/listings') {
         const requestedStatus = url.searchParams.get('status') || 'ACTIVE';
         if (requestedStatus !== 'ACTIVE') throw validationError('공개 매물 목록에서는 ACTIVE 상태만 조회할 수 있습니다.', { field: 'status' });
-        send(response, 200, store.listListings({ status: 'ACTIVE', query: url.searchParams.get('q') || '' })); return;
+        const includeSamples = auth.mode === 'demo' || url.searchParams.get('includeSamples') === 'true';
+        send(response, 200, store.listListings({ status: 'ACTIVE', query: url.searchParams.get('q') || '', includeSamples })); return;
       }
       if (method === 'GET' && segments.join('/') === 'api/listings/mine') {
         send(response, 200, store.listListingsBySeller(context.userId)); return;
@@ -298,6 +300,7 @@ export function createApiServer({
         if (!listing) throw notFound('매물을 찾을 수 없습니다.');
         requireOwner(listing.sellerId, context);
         if (listing.status !== 'INACTIVE') throw invalidState('비활성 매물만 다시 활성화할 수 있습니다.');
+        if (listing.soldAt) throw invalidState('판매 완료한 매물은 다시 활성화할 수 없습니다. 새 판매글을 작성해 주세요.');
         const updated = runCommand(store, context, request, body, {
           actionType: 'REACTIVATE_LISTING', targetType: 'Listing', targetId: listing.id, operation: path,
         }, () => {
@@ -306,6 +309,17 @@ export function createApiServer({
           store.notifyMatchesForListing(value, now());
           return value;
         });
+        send(response, 200, updated); return;
+      }
+      if (method === 'POST' && segments.length === 4 && segments[0] === 'api' && segments[1] === 'listings' && segments[3] === 'sold') {
+        humanOnly(context, '매물 판매 완료 처리');
+        const listing = store.getListing(segments[2]);
+        if (!listing) throw notFound('매물을 찾을 수 없습니다.');
+        requireOwner(listing.sellerId, context);
+        if (listing.status !== 'ACTIVE') throw invalidState('활성 매물만 판매 완료 처리할 수 있습니다.');
+        const updated = runCommand(store, context, request, body, {
+          actionType: 'MARK_LISTING_SOLD', targetType: 'Listing', targetId: listing.id, operation: path,
+        }, () => store.markListingSold(listing.id, now()));
         send(response, 200, updated); return;
       }
 
@@ -350,9 +364,10 @@ export function createApiServer({
         requireOwner(purchaseRequest.buyerId, context);
         if (purchaseRequest.status !== 'CONFIRMED') throw invalidState('구매자가 Web에서 조건을 확정한 뒤 검색할 수 있습니다.');
         const results = runCommand(store, context, request, body, {
-          actionType: 'SEARCH_LISTINGS', targetType: 'PurchaseRequest', targetId: requestId, operation: path,
+          actionType: 'SEARCH_LISTINGS', targetType: 'PurchaseRequest', targetId: requestId, operation: path + url.search,
         }, () => {
-          const values = matchListings(store.activeListingsForSearch(), purchaseRequest);
+          const includeSamples = auth.mode === 'demo' || url.searchParams.get('includeSamples') === 'true';
+          const values = matchListings(store.activeListingsForSearch({ includeSamples }), purchaseRequest);
           store.insertSearchResults(values);
           return values;
         });

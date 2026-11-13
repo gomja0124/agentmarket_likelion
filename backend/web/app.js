@@ -189,6 +189,10 @@ export function createWebServer(options = {}) {
         response.end(payload); return;
       }
       if (method !== 'GET') { error(response, 405, 'METHOD_NOT_ALLOWED', '지원하지 않는 요청입니다.'); return; }
+      if (path === '/sell' || path === '/sell/') {
+        if (session) { response.writeHead(302, { Location: '/#sell' }); response.end(); return; }
+        await serveFile(response, 'seller.html', 'text/html; charset=utf-8'); return;
+      }
       if (path === '/login') {
         if (session) { response.writeHead(302, { Location: '/' }); response.end(); return; }
         await serveFile(response, 'login.html', 'text/html; charset=utf-8'); return;

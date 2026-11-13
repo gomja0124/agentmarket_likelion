@@ -16,3 +16,17 @@
 .landing-bottom h2{font-size:30px;letter-spacing:-.05em;margin:10px 0}
 .landing-bottom p{color:#d4e5d6;margin:0}
 @media(max-width:700px){.landing-header .header-sell{margin-left:auto}.landing-nav{display:none}.landing-access{margin-top:20px!important}.landing-steps{padding-block:58px 66px}.landing-step-grid{grid-template-columns:1fr;gap:24px}.landing-bottom-inner{display:block}.landing-bottom .btn{margin-top:25px}}
+.seller-landing-hero{background:#f5f9f3;padding:90px 0}
+.seller-landing-grid{display:grid;grid-template-columns:1.1fr .9fr;align-items:center;gap:72px}
+.seller-landing-grid h1{font-family:'Plus Jakarta Sans',Manrope,sans-serif;font-size:clamp(38px,4vw,58px);line-height:1.25;letter-spacing:-.07em;margin:19px 0}
+.seller-landing-grid h1 em{font-style:normal;color:#4c8a5d}
+.seller-landing-grid>div>p{max-width:570px;color:#607365;line-height:1.8;font-size:16px}
+.seller-checklist{background:#fff;border:1px solid #dfe9de;border-radius:20px;padding:38px;box-shadow:0 24px 65px #2343310d}
+.seller-checklist>span{font-size:12px;font-weight:800;color:#54835c;letter-spacing:.08em}
+.seller-checklist h2{font-size:24px;letter-spacing:-.05em;line-height:1.4;margin:12px 0 22px}
+.seller-checklist ol{margin:0;padding-left:22px;color:#385542;font-size:14px;line-height:1.8}
+.seller-checklist li+li{margin-top:10px}
+.seller-checklist p{border-top:1px solid #e6eee5;margin:22px 0 0;padding-top:16px;font-size:12px;line-height:1.7;color:#718575}
+.seller-landing-steps{padding-block:78px 100px}
+.seller-landing-steps h2{font-size:32px;letter-spacing:-.06em;margin:12px 0 38px}
+@media(max-width:700px){.seller-landing-hero{padding:55px 0}.seller-landing-grid{display:block}.seller-landing-grid>div>p{font-size:14px}.seller-landing-grid .hero-actions{flex-direction:column}.seller-checklist{padding:25px;margin-top:38px}.seller-landing-steps{padding-block:58px 70px}.seller-landing-steps h2{font-size:27px}}

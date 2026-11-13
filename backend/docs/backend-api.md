@@ -27,7 +27,7 @@ An Agent may create/update drafts and request search for a purchase request alre
 | --- | --- | --- |
 | `GET /api/health` | Health and enabled MCP feature stage | `{ status, database, step, mcpStep2Enabled, authMode }` |
 | `GET /api/categories/:category/schema` | PHONE/TABLET fields and question hints | Category schema object |
-| `GET /api/listings?status=ACTIVE&q=` | Public active listings, optional text query | `Listing[]` |
+| `GET /api/listings?status=ACTIVE&q=&includeSamples=true` | Public active listings, optional text query. Strict production excludes seeded samples unless `includeSamples=true` | `Listing[]` |
 | `GET /api/listings/:id` | Active listing detail (inactive detail is owner-only) | `Listing` |
 | `GET /api/listings/mine` | Current user's listings | `Listing[]` |
 | `GET /api/listing-drafts/mine` | Current user's unpublished drafts | `ListingDraft[]` |
@@ -37,12 +37,13 @@ An Agent may create/update drafts and request search for a purchase request alre
 | `POST /api/listings/:id/drafts` | Start a new draft from an owned active listing | `ListingDraft` |
 | `POST /api/listings/:id/deactivate` | Human owner deactivates a listing | `Listing` |
 | `POST /api/listings/:id/reactivate` | Human owner reactivates an inactive listing | `Listing` |
+| `POST /api/listings/:id/sold` | Human owner marks an active listing sold; it becomes inactive and cannot be reactivated | `Listing` with `soldAt` |
 | `GET /api/purchase-requests/:id` | Owner-only draft/confirmed request and review guidance | `PurchaseRequestResponse` |
 | `GET /api/purchase-requests/mine` | Current user's private requests | `PurchaseRequest[]` |
 | `POST /api/purchase-requests` | Create a private draft | `PurchaseRequest` |
 | `PATCH /api/purchase-requests/:id` | Update an owned request; returns it to DRAFT | `PurchaseRequest` |
 | `POST /api/purchase-requests/:id/confirm` | Human owner confirms category and budget | `PurchaseRequest` |
-| `POST /api/purchase-requests/:id/search` | Search confirmed request against ACTIVE listings | `SearchResult[]` |
+| `POST /api/purchase-requests/:id/search?includeSamples=true` | Search confirmed request against ACTIVE listings. Strict production excludes seeded samples unless explicitly included | `SearchResult[]` |
 
 Draft creation accepts partial values and returns `missingFields`. Listing publication requires `category`, `model`, and positive `priceKrw`; request confirmation requires `category` and positive `maxBudgetKrw`. Unknown optional values stay `null` or in `missingFields`; the server does not infer them. `conditionPreferences` is an array of `LIKE_NEW`, `GOOD`, and `FAIR`, following the current frontend API draft.
 

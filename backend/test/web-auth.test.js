@@ -40,6 +40,9 @@ test('Web login creates a server session and forwards only its verified identity
     assert.match(landingHtml, /href="\/register"/);
     assert.match(landingHtml, /href="\/login"/);
     assert.doesNotMatch(landingHtml, /src\/app\.js/);
+    const sellerPage = await fetch(`${webUrl}/sell`);
+    assert.equal(sellerPage.status, 200);
+    assert.match(await sellerPage.text(), /실제 판매할 기기/);
     assert.equal((await fetch(`${webUrl}/src/landing.css`)).status, 200);
     assert.equal((await fetch(`${webUrl}/index.html`)).url, `${webUrl}/login`);
     assert.equal((await fetch(`${webUrl}/api/me`)).status, 401);
@@ -62,6 +65,9 @@ test('Web login creates a server session and forwards only its verified identity
     const { csrfToken, userId } = await login.json();
     assert.equal(userId, user.id);
     assert.match(await (await fetch(`${webUrl}/`, { headers: { Cookie: cookie } })).text(), /src\/app\.js/);
+    const sellerRedirect = await fetch(`${webUrl}/sell`, { headers: { Cookie: cookie }, redirect: 'manual' });
+    assert.equal(sellerRedirect.status, 302);
+    assert.equal(sellerRedirect.headers.get('location'), '/#sell');
 
     const me = await fetch(`${webUrl}/api/me`, { headers: { Cookie: cookie, 'X-User-Id': '00000000-0000-4000-8000-000000000099',
       'X-Web-Secret': 'spoofed', Authorization: 'Bearer spoofed' } });
