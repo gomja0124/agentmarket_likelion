@@ -107,7 +107,8 @@ export function createMcpHttpServer({
     try {
       auth = await authenticate(request);
     } catch (error) {
-      log('warn', 'auth_failed', { status: error.status, reason: error.message, ip: request.socket.remoteAddress });
+      log('warn', 'auth_failed', { status: error.status, reason: error.message,
+        authHeaderLength: (request.headers.authorization || '').length, ip: request.socket.remoteAddress });
       response.setHeader('WWW-Authenticate', 'Bearer realm="agent-market"');
       rpcError(response, error.status || 401, -32001, error.message);
       return;
