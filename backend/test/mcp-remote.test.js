@@ -151,6 +151,8 @@ test('Claude-style natural language request can be confirmed and matched through
     const search = await buyer.call('search_listings', { purchaseRequestId });
     assert.equal(search.isError, false);
     assert.ok(search.value.results.some(result => result.listing.id === listing.value.id && result.matchStatus === 'MATCH'));
+    assert.ok(search.value.results.every(result => !('images' in result.listing)), 'AI 검색 응답에 사진 데이터가 포함되지 않는다');
+    assert.ok(search.text.length < 30000, '사진이 많은 매물도 대화에서 빠르게 읽을 수 있는 크기로 반환한다');
     const stored = await fetch(`${apiUrl}/api/purchase-requests/${purchaseRequestId}`, {
       headers: { Authorization: `Bearer ${token.token}` },
     });

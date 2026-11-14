@@ -155,6 +155,34 @@ function summarizeSearch(results) {
   };
 }
 
+// Search results are fed back into an AI conversation. Listing photos are data URLs
+// in the API response and can turn a short search into hundreds of KB of text.
+// The listing detail tool and Web UI remain available when a photo is needed.
+function compactSearchResult(result) {
+  const { listing } = result;
+  return {
+    listingId: result.listingId,
+    matchStatus: result.matchStatus,
+    matchedFields: result.matchedFields,
+    unmetFields: result.unmetFields,
+    missingFields: result.missingFields,
+    ruleVersion: result.ruleVersion,
+    listing: {
+      id: listing.id,
+      title: listing.title,
+      category: listing.category,
+      brand: listing.brand,
+      model: listing.model,
+      storageGb: listing.storageGb,
+      condition: listing.condition,
+      priceKrw: listing.priceKrw,
+      status: listing.status,
+      isSample: listing.isSample,
+      publishedAt: listing.publishedAt,
+    },
+  };
+}
+
 // ---- 결과·오류 포장 ---------------------------------------------------------
 
 function ok(payload) {
@@ -366,7 +394,7 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
       includeSamples: z.boolean().optional().describe('시연용 매물도 포함할 때만 true') },
   }, async ({ purchaseRequestId, requestId, includeSamples }) => {
     const results = await api.search(purchaseRequestId, requestId, includeSamples === true);
-    return { purchaseRequestId, summary: summarizeSearch(results), results };
+    return { purchaseRequestId, summary: summarizeSearch(results), results: results.map(compactSearchResult) };
   });
 
   // Step 2 tools are opt-in. Publishing, sending connection requests and accepting them remain Web-only.
