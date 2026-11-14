@@ -46,3 +46,12 @@ export function unresolvedFields(value, required) {
   });
   return [...new Set([...outstanding, ...required(value)])];
 }
+
+// A search result is a snapshot. The detail page fetches the current listing,
+// so it must not keep displaying an old MATCH after the seller edits it.
+export function isSearchResultStale(result, currentListing) {
+  const snapshot = result?.listing;
+  if (!snapshot || !currentListing || snapshot.id !== currentListing.id) return false;
+  return ['status', 'priceKrw', 'category', 'model', 'storageGb', 'condition', 'updatedAt']
+    .some(field => snapshot[field] !== currentListing[field]);
+}

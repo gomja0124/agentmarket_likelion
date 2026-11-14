@@ -151,7 +151,7 @@ function summarizeSearch(results) {
     total: results.length,
     ...counts,
     ruleVersion: results[0]?.ruleVersion ?? null,
-    note: 'MATCH는 모든 조건 충족, NEEDS_CONFIRMATION은 매물 정보가 없어 판단 불가(정상으로 추정하지 말 것), EXCLUDED는 조건 위반.',
+    note: 'MATCH는 검색 시점의 모든 조건 충족, NEEDS_CONFIRMATION은 정보 부족, EXCLUDED는 조건 위반. 판매자가 가격·상태를 바꿀 수 있으니 구매·연결 결정 직전에 get_listing으로 최신 정보를 확인하고 필요하면 새 requestId로 다시 검색할 것.',
   };
 }
 
@@ -179,6 +179,7 @@ function compactSearchResult(result) {
       status: listing.status,
       isSample: listing.isSample,
       publishedAt: listing.publishedAt,
+      updatedAt: listing.updatedAt,
     },
   };
 }
@@ -324,7 +325,7 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
 
   register('read', 'get_listing', {
     title: '매물 상세',
-    description: '후보 매물의 구조화 필드와 이미지 링크를 돌려준다. missingFields에 있는 항목은 판매자가 입력하지 않은 것이므로 정상으로 추정하지 않는다.',
+    description: '후보 매물의 현재 가격·상태·updatedAt을 다시 조회한다. 이전 검색 결과는 당시의 스냅샷이며 판매자가 정보를 바꿀 수 있다. 구매 또는 연결 결정 전 최신 값을 확인한다. missingFields는 정상으로 추정하지 않는다.',
     inputSchema: { listingId: UUID },
   }, ({ listingId }) => api.getListing(listingId));
 
