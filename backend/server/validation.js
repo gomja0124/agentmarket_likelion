@@ -20,10 +20,11 @@ const enumValue = (value, allowed, name) => {
   if (!allowed.includes(value)) throw validationError(`${name} 값이 올바르지 않습니다.`, { field: name, allowed });
   return value;
 };
-const integer = (value, name, { minimum = 0 } = {}) => {
+const integer = (value, name, { minimum = 0, maximum = Number.MAX_SAFE_INTEGER } = {}) => {
   if (value == null || value === '') return null;
-  if (!Number.isSafeInteger(value) || value < minimum) {
-    throw validationError(`${name}은(는) ${minimum} 이상의 정수여야 합니다.`, { field: name, minimum });
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    const label = ({ priceKrw: '판매 가격', maxBudgetKrw: '최대 예산', storageGb: '저장 용량' })[name] || name;
+    throw validationError(`${label}은(는) ${minimum.toLocaleString('ko-KR')}~${maximum.toLocaleString('ko-KR')} 범위의 정수여야 합니다.`, { field: name, minimum, maximum });
   }
   return value;
 };
@@ -77,7 +78,7 @@ export function normalizeListingDraft(payload, { existing, userId, actorType, no
     storageGb: integer(merged.storageGb, 'storageGb', { minimum: 1 }),
     condition,
     accessories: text(merged.accessories, 'accessories', { max: 2000 }),
-    priceKrw: integer(merged.priceKrw, 'priceKrw'),
+    priceKrw: integer(merged.priceKrw, 'priceKrw', { minimum: 1, maximum: 100_000_000 }),
     images: stringArray(merged.images, 'images', { maxItems: 20, maxLength: 1_400_000 }),
     missingFields: [],
     nextQuestions: stringArray(merged.nextQuestions, 'nextQuestions'),
@@ -110,7 +111,7 @@ export function normalizePurchaseRequest(payload, { existing, userId, actorType,
     source: enumValue(existing?.source ?? (actorType === 'AGENT' ? 'AGENT' : 'HUMAN'), SOURCES, 'source'),
     category: enumValue(merged.category, CATEGORIES, 'category'),
     modelQuery: text(merged.modelQuery, 'modelQuery', { max: 200 }),
-    maxBudgetKrw: integer(merged.maxBudgetKrw, 'maxBudgetKrw'),
+    maxBudgetKrw: integer(merged.maxBudgetKrw, 'maxBudgetKrw', { minimum: 1, maximum: 100_000_000 }),
     storageGb: integer(merged.storageGb, 'storageGb', { minimum: 1 }),
     conditionPreferences,
     missingFields: [],

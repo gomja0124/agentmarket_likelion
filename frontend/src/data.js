@@ -35,5 +35,5 @@ export function formatPrice(value) {
 
 export function labelFor(field) {
   return ({ category: '기기 종류', model: '모델', modelQuery: '원하는 모델', priceKrw: '가격', maxBudgetKrw: '최대 예산',
-    storageGb: '저장 용량', condition: '상태', accessories: '구성품', batteryHealth: '배터리 상태' })[field] || field;
+    storageGb: '저장 용량', condition: '상태', description: '10자 이상의 설명', photo: '실물 사진', accessories: '구성품', batteryHealth: '배터리 상태' })[field] || field;
 }

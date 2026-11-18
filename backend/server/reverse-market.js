@@ -37,6 +37,9 @@ export function patchDemand(demand, patch, now = new Date().toISOString()) {
   if (Object.hasOwn(patch, 'storageGb')) next.storageGb = positiveInteger(patch.storageGb, 'storageGb', true);
   if (Object.hasOwn(patch, 'minBudgetKrw')) next.minBudgetKrw = positiveInteger(patch.minBudgetKrw, 'minBudgetKrw', true);
   if (Object.hasOwn(patch, 'maxBudgetKrw')) next.maxBudgetKrw = positiveInteger(patch.maxBudgetKrw, 'maxBudgetKrw');
+  if (next.minBudgetKrw > 100_000_000 || next.maxBudgetKrw > 100_000_000) {
+    throw validationError('공개 예산은 1억 원 이하여야 합니다.', { field: 'maxBudgetKrw' });
+  }
   if (Object.hasOwn(patch, 'conditionPreferences')) {
     if (!Array.isArray(patch.conditionPreferences) || patch.conditionPreferences.some(value => !conditions.includes(value))) {
       throw validationError('conditionPreferences 값이 올바르지 않습니다.', { field: 'conditionPreferences' });

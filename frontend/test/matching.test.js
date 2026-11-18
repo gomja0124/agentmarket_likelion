@@ -1,10 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchListings, listingMissing, requestMissing, isSearchResultStale } from '../src/matching.js';
+import { matchListings, listingMissing, listingPublicVerificationMissing, requestMissing, isSearchResultStale } from '../src/matching.js';
 
 test('승인 필수 값이 없으면 게시와 검색을 진행할 수 없다', () => {
   assert.deepEqual(listingMissing({ category: 'PHONE', model: '', priceKrw: 0 }), ['model', 'priceKrw']);
   assert.deepEqual(requestMissing({ category: 'TABLET', maxBudgetKrw: null }), ['maxBudgetKrw']);
+});
+
+test('실매물은 검색 노출에 필요한 사진과 상태를 모두 확인한 뒤 게시한다', () => {
+  const draft = { category: 'PHONE', model: 'Galaxy S23', priceKrw: 480000,
+    storageGb: 256, condition: 'GOOD', description: '현재 판매 가능한 기기입니다.', images: [] };
+  assert.deepEqual(listingPublicVerificationMissing(draft), ['photo']);
+  assert.deepEqual(listingPublicVerificationMissing({ ...draft, images: ['https://example.com/photo.jpg'] }), ['photo']);
+  assert.deepEqual(listingPublicVerificationMissing({ ...draft, images: ['data:image/jpeg;base64,aGVsbG8='] }), []);
+  assert.deepEqual(listingPublicVerificationMissing({ ...draft, condition: null, description: '짧음' }), ['condition', 'description', 'photo']);
 });
 
 test('조건 위반은 제외하고 판단 정보 누락은 확인 필요로 표시한다', () => {

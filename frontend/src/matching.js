@@ -35,6 +35,16 @@ export function listingMissing(draft) {
   return ['category', 'model', 'priceKrw'].filter(key => !draft[key] || (key === 'priceKrw' && Number(draft[key]) <= 0));
 }
 
+export function listingPublicVerificationMissing(draft) {
+  return [
+    ...listingMissing(draft),
+    !draft.storageGb && 'storageGb',
+    !draft.condition && 'condition',
+    !(draft.description || '').trim() || draft.description.trim().length < 10 ? 'description' : null,
+    !draft.images?.some(image => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(image)) && 'photo',
+  ].filter(Boolean);
+}
+
 export function requestMissing(request) {
   return ['category', 'maxBudgetKrw'].filter(key => !request[key] || (key === 'maxBudgetKrw' && Number(request[key]) <= 0));
 }

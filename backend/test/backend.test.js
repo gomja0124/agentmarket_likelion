@@ -186,6 +186,16 @@ test('missing required values and invalid categories return 422', async () => {
     const invalidCategory = await call(base, '/api/listing-drafts', { method: 'POST', body: { category: 'LAPTOP' } });
     assert.equal(invalidCategory.status, 422);
     assert.equal(invalidCategory.value.code, 'VALIDATION_ERROR');
+    for (const priceKrw of [0, 100_000_001]) {
+      const invalidPrice = await call(base, '/api/listing-drafts', { method: 'POST',
+        body: { category: 'PHONE', model: 'Galaxy S23', priceKrw } });
+      assert.equal(invalidPrice.status, 422);
+      assert.match(invalidPrice.value.message, /판매 가격/);
+    }
+    const invalidBudget = await call(base, '/api/purchase-requests', { method: 'POST',
+      body: { category: 'PHONE', maxBudgetKrw: 100_000_001 } });
+    assert.equal(invalidBudget.status, 422);
+    assert.match(invalidBudget.value.message, /최대 예산/);
     const incompleteDraft = await call(base, '/api/listing-drafts', { method: 'POST', body: { category: 'PHONE', priceKrw: 300000 } });
     const prematurePublish = await call(base, `/api/listing-drafts/${incompleteDraft.value.id}/publish`, { method: 'POST' });
     assert.equal(prematurePublish.status, 422);
