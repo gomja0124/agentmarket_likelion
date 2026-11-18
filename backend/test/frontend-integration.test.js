@@ -30,6 +30,12 @@ test('frontend HTTP adapter publishes a listing and searches confirmed purchase 
     assert.equal(results[0].matchStatus, 'MATCH');
     await api.deactivateListing(listing.id);
     assert.deepEqual(await api.search(confirmed.id), []);
+    assert.equal((await api.reactivateListing(listing.id)).status, 'ACTIVE');
+    assert.equal((await api.search(confirmed.id)).length, 1);
+    const natural = await api.savePurchaseRequest({ naturalLanguageRequest: '60만 원 이하 아이패드 128GB 이상 구해요' });
+    assert.equal(natural.category, 'TABLET');
+    assert.equal(natural.maxBudgetKrw, 600000);
+    assert.equal(natural.storageGb, 128);
   } finally {
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;

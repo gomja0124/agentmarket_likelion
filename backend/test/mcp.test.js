@@ -17,15 +17,16 @@ import { listingQuestions, nextActionFor } from '../mcp/server.js';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const demoUser = '00000000-0000-4000-8000-000000000001';
 
-const SPEC_TOOLS = ['get_category_schema', 'create_listing_draft', 'update_listing_draft', 'create_purchase_request_draft', 'update_purchase_request_draft', 'search_listings', 'get_listing'];
-const HELPER_TOOLS = ['whoami', 'get_market_guide', 'browse_listings', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests'];
+const SPEC_TOOLS = ['get_category_schema', 'create_listing_draft', 'update_listing_draft', 'create_purchase_request_draft', 'update_purchase_request_draft', 'confirm_purchase_request', 'search_listings', 'get_listing'];
+const HELPER_TOOLS = ['whoami', 'get_market_guide', 'browse_listings', 'review_listing_details', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests'];
 
-async function withMcp(run, { userId = demoUser, token = '', apiOptions = {} } = {}) {
-  const api = createApiServer({ dbPath: ':memory:', ...apiOptions });
+async function withMcp(run, { userId = demoUser, token = '', apiOptions = {}, step2 = false } = {}) {
+  const api = createApiServer({ dbPath: ':memory:', mcpStep2Enabled: step2, ...apiOptions });
   await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${api.address().port}`;
   const client = new Client({ name: 'e2e-test', version: '0.0.0' });
   const env = { ...process.env, AGENT_MARKET_API_URL: base, AGENT_MARKET_WEB_URL: 'http://web.local' };
+  env.AGENT_MARKET_ENABLE_STEP2 = step2 ? '1' : '0';
   delete env.AGENT_MARKET_TOKEN;
   if (token) env.AGENT_MARKET_TOKEN = token; else env.AGENT_MARKET_USER_ID = userId;
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(repoRoot, 'mcp/index.js')], cwd: repoRoot, env, stderr: 'pipe' }));
@@ -56,20 +57,51 @@ async function withMcp(run, { userId = demoUser, token = '', apiOptions = {} } =
   }
 }
 
-test('tool set matches 03 MCP Tools Spec and exposes no publish/confirm', async () => {
+test('tool set exposes scoped purchase confirmation but no publish or connection action', async () => {
   await withMcp(async ({ call, client }) => {
     const names = (await client.listTools()).tools.map(t => t.name).sort();
     assert.deepEqual(names, [...SPEC_TOOLS, ...HELPER_TOOLS].sort());
-    assert.ok(!names.some(n => /publish|confirm|deactivate|token/.test(n)), '사람 전용 행동은 tool로 노출되지 않는다');
+    assert.ok(!names.some(n => /publish|deactivate|token|connection/.test(n)), '거래·게시 행동은 tool로 노출되지 않는다');
     assert.match(client.getInstructions() || '', /게시.*사람/);
     const guide = await call('get_market_guide');
     assert.equal(guide.value.apiHealth.step, 1);
+    const advice = await call('review_listing_details', { category: 'PHONE', model: 'Galaxy S23', storageGb: 256 });
+    assert.ok(advice.value.questions.some(question => question.includes('사진')));
+    assert.equal(advice.value.recommendedRange, null);
+    assert.equal(guide.value.apiHealth.mcpStep2Enabled, false);
     assert.equal(guide.value.webUrl, 'http://web.local');
     const schema = await call('get_category_schema', { category: 'PHONE' });
     assert.deepEqual(schema.value.requiredFields, ['category', 'model', 'priceKrw']);
     assert.deepEqual(schema.value.minimumPurchaseConditions, ['category', 'maxBudgetKrw']);
     assert.ok(schema.value.questionHints.length > 0);
   });
+});
+
+test('Step 2 opt-in tools can propose a private demand but cannot publish or connect', async () => {
+  await withMcp(async ({ call, human, client }) => {
+    const guide = await call('get_market_guide');
+    assert.equal(guide.value.step2Enabled, true);
+    assert.equal(guide.value.apiHealth.step, 2);
+    assert.equal(guide.value.apiHealth.mcpStep2Enabled, true);
+    const names = (await client.listTools()).tools.map(tool => tool.name);
+    assert.ok(names.includes('create_public_demand_draft'));
+    assert.ok(names.includes('browse_matching_public_demands'));
+    assert.ok(!names.some(name => /publish|send_connection|accept_connection/.test(name)));
+    const purchase = await call('create_purchase_request_draft', { category: 'TABLET',
+      knownConstraints: { maxBudgetKrw: 650000, modelQuery: 'iPad Air' } });
+    assert.equal(purchase.isError, false);
+    const purchaseId = purchase.value.requestId;
+    await human('POST', `/api/purchase-requests/${purchaseId}/confirm`);
+    const demand = await call('create_public_demand_draft', { purchaseRequestId: purchaseId });
+    assert.equal(demand.isError, false);
+    assert.equal(demand.value.demand.status, 'DRAFT');
+    assert.equal(demand.value.humanApprovalRequired, true);
+    const edited = await call('update_public_demand_draft', { demandId: demand.value.demand.id,
+      patch: { title: 'iPad Air 256GB 구해요' } });
+    assert.equal(edited.value.demand.title, 'iPad Air 256GB 구해요');
+    const listed = await call('list_my_public_demands');
+    assert.equal(listed.value.demands.length, 1);
+  }, { step2: true });
 });
 
 test('AC-01 seller info becomes a structured ListingDraft; unknown values stay in missingFields', async () => {
@@ -163,7 +195,7 @@ test('AC-04 search is refused while DRAFT; after human confirmation it runs', as
     const early = await call('search_listings', { purchaseRequestId: id });
     assert.equal(early.isError, true);
     assert.equal(early.value.code, 'INVALID_STATE');
-    assert.match(early.value.suggestedAction, /Web/);
+    assert.match(early.value.suggestedAction, /승인/);
 
     const confirmed = await human('POST', `/api/purchase-requests/${id}/confirm`);
     assert.equal(confirmed.value.status, 'CONFIRMED');

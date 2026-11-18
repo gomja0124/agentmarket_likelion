@@ -71,7 +71,12 @@ export class AgentMarketApi {
   health() { return this.get('/api/health'); }
   me() { return this.get('/api/me'); }
   categorySchema(category) { return this.get(`/api/categories/${encodeURIComponent(category)}/schema`); }
-  listListings(query = '') { return this.get(`/api/listings?status=ACTIVE${query ? `&q=${encodeURIComponent(query)}` : ''}`); }
+  listingAdvice(fields = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(fields)) if (value != null && value !== '') params.set(key, String(value));
+    return this.get(`/api/listing-advice?${params}`);
+  }
+  listListings(query = '', includeSamples = false) { return this.get(`/api/listings?status=ACTIVE${query ? `&q=${encodeURIComponent(query)}` : ''}${includeSamples ? '&includeSamples=true' : ''}`); }
   getListing(id) { return this.get(`/api/listings/${encodeURIComponent(id)}`); }
   myListings() { return this.get('/api/listings/mine'); }
   myDrafts() { return this.get('/api/listing-drafts/mine'); }
@@ -82,5 +87,13 @@ export class AgentMarketApi {
   draftFromListing(listingId, fields, requestId) { return this.post(`/api/listings/${encodeURIComponent(listingId)}/drafts`, fields, requestId); }
   createPurchaseRequest(fields, requestId) { return this.post('/api/purchase-requests', fields, requestId); }
   updatePurchaseRequest(id, fields, requestId) { return this.patch(`/api/purchase-requests/${encodeURIComponent(id)}`, fields, requestId); }
-  search(purchaseRequestId, requestId) { return this.post(`/api/purchase-requests/${encodeURIComponent(purchaseRequestId)}/search`, {}, requestId); }
+  confirmPurchaseRequest(id, approval, requestId) { return this.post(`/api/purchase-requests/${encodeURIComponent(id)}/confirm`, approval, requestId); }
+  search(purchaseRequestId, requestId, includeSamples = false) { return this.post(`/api/purchase-requests/${encodeURIComponent(purchaseRequestId)}/search${includeSamples ? '?includeSamples=true' : ''}`, {}, requestId); }
+  myPublicDemands() { return this.get('/api/public-demands/mine'); }
+  createPublicDemandDraft(purchaseRequestId, requestId) {
+    return this.post(`/api/purchase-requests/${encodeURIComponent(purchaseRequestId)}/public-demand`, {}, requestId);
+  }
+  updatePublicDemandDraft(id, patch, requestId) { return this.patch(`/api/public-demands/${encodeURIComponent(id)}`, patch, requestId); }
+  matchingPublicDemands(listingId) { return this.get(`/api/listings/${encodeURIComponent(listingId)}/public-demands`); }
+  myNotifications() { return this.get('/api/notifications/mine'); }
 }

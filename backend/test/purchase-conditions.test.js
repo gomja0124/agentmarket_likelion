@@ -26,6 +26,16 @@ test('model, decimal KRW budget and TB storage are extracted', () => {
   assert.equal(parse({ naturalLanguageRequest: '휴대폰 600,000원 미만' }).maxBudgetKrw, 599999);
 });
 
+test('presentation wording extracts Galaxy S23, 256GB, 480000원 이하 and 좋음', () => {
+  const value = parse({ naturalLanguageRequest: '시연용 포함해서 핸드폰 Galaxy S23 256GB 상태 좋음 480000원 이하 찾아줘' });
+  assert.equal(value.category, 'PHONE');
+  assert.equal(value.modelQuery, 'Galaxy S23');
+  assert.equal(value.storageGb, 256);
+  assert.equal(value.maxBudgetKrw, 480000);
+  assert.deepEqual(value.conditionPreferences, ['GOOD']);
+  assert.deepEqual(value.missingFields, []);
+});
+
 test('ambiguous budgets and unsupported bounds produce questions rather than guesses', () => {
   for (const input of ['저렴한 태블릿', '태블릿 50만원 정도', '태블릿 예산 50만원 이상', '태블릿 50만원 이하 또는 80만원 이하']) {
     const value = parse({ naturalLanguageRequest: input });

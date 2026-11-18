@@ -1,0 +1,22 @@
+name: Verify deployment branch
+
+on:
+  push:
+    branches: [dokyeong-merge]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm --prefix backend ci
+      - run: npm test
+      - run: docker build -t agent-market-deployment .
+      - run: docker compose -f compose.aws.yml config -q
+        env:
+          AGENT_MARKET_DOMAIN: market.example.com
+          AGENT_MARKET_WEB_SECRET: ci-only-secret-not-used-in-deployment

@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApiServer } from '../server/app.js';
 import { RULE_VERSION } from '../server/matching.js';
+import { PRESENTATION_SELLER_ID } from '../server/seed.js';
 
 const demoUser = '00000000-0000-4000-8000-000000000001';
 const otherUser = '00000000-0000-4000-8000-000000000099';
 
-async function withApi(run) {
-  const server = createApiServer({ dbPath: ':memory:' });
+async function withApi(run, options = {}) {
+  const server = createApiServer({ dbPath: ':memory:', ...options });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   const base = `http://127.0.0.1:${address.port}`;
@@ -18,12 +19,13 @@ async function withApi(run) {
   }
 }
 
-async function call(base, path, { method = 'GET', body, userId, actorType, requestId } = {}) {
+async function call(base, path, { method = 'GET', body, userId, actorType, requestId, webSecret } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (userId) headers['X-User-Id'] = userId;
   if (actorType) headers['X-Actor-Type'] = actorType;
   if (requestId) headers['Idempotency-Key'] = requestId;
+  if (webSecret) headers['X-Web-Secret'] = webSecret;
   const response = await fetch(`${base}${path}`, {
     method,
     headers,
@@ -35,12 +37,59 @@ async function call(base, path, { method = 'GET', body, userId, actorType, reque
 
 test('health and seed expose at least 12 active phone/tablet listings', async () => {
   await withApi(async base => {
-    assert.deepEqual((await call(base, '/api/health')).value, { status: 'ok', database: 'sqlite', step: 1, authMode: 'demo' });
+    assert.deepEqual((await call(base, '/api/health')).value, { status: 'ok', database: 'sqlite', step: 1, mcpStep2Enabled: false, authMode: 'demo' });
     const listings = await call(base, '/api/listings?status=ACTIVE');
     assert.equal(listings.status, 200);
     assert.equal(listings.value.length, 12);
     assert.deepEqual([...new Set(listings.value.map(item => item.category))].sort(), ['PHONE', 'TABLET']);
   });
+});
+
+test('strict service shows real seller inventory by default and removes sold items from matching', async () => {
+  const webSecret = 'strict-listing-test-secret-123';
+  await withApi(async (base, server) => {
+    server.store.ensureUser(otherUser);
+    const asSeller = { userId: otherUser, webSecret };
+    assert.equal((await call(base, '/api/listings?status=ACTIVE', asSeller)).value.length, 0);
+    assert.equal((await call(base, '/api/listings?status=ACTIVE&includeSamples=true', asSeller)).value.length, 12);
+
+    const draft = await call(base, '/api/listing-drafts', { ...asSeller, method: 'POST',
+      body: { category: 'PHONE', model: 'iPhone 15 Pro', priceKrw: 700000, title: '실제 판매자 등록 매물' } });
+    assert.equal(draft.status, 201);
+    const published = await call(base, `/api/listing-drafts/${draft.value.id}/publish`, { ...asSeller, method: 'POST' });
+    assert.equal(published.status, 201);
+    assert.equal(published.value.isSample, false);
+    const real = await call(base, '/api/listings?status=ACTIVE', asSeller);
+    assert.deepEqual(real.value.map(item => item.id), [published.value.id]);
+    const presentationSeller = { userId: PRESENTATION_SELLER_ID, webSecret };
+    const demoDraft = await call(base, '/api/listing-drafts', { ...presentationSeller, method: 'POST',
+      body: { category: 'TABLET', model: 'Presentation iPad', priceKrw: 300000 } });
+    const demoPublished = await call(base, `/api/listing-drafts/${demoDraft.value.id}/publish`, { ...presentationSeller, method: 'POST' });
+    assert.equal(demoPublished.value.isSample, true);
+    assert.deepEqual((await call(base, '/api/listings?status=ACTIVE', asSeller)).value.map(item => item.id), [published.value.id]);
+    assert.equal((await call(base, '/api/listings?status=ACTIVE&includeSamples=true', asSeller)).value.length, 14);
+    const demoBuyerRequest = await call(base, '/api/purchase-requests', { ...asSeller, method: 'POST',
+      body: { category: 'TABLET', modelQuery: 'Presentation iPad', maxBudgetKrw: 400000 } });
+    await call(base, `/api/purchase-requests/${demoBuyerRequest.value.id}/confirm`, { ...asSeller, method: 'POST' });
+    const demoDemand = await call(base, `/api/purchase-requests/${demoBuyerRequest.value.id}/public-demand`, { ...asSeller, method: 'POST' });
+    assert.equal((await call(base, `/api/public-demands/${demoDemand.value.id}/publish`, { ...asSeller, method: 'POST' })).status, 200);
+    assert.ok((await call(base, '/api/notifications/mine', presentationSeller)).value.some(item =>
+      item.type === 'NEW_MATCH' && item.listingId === demoPublished.value.id));
+
+    const buyer = await call(base, '/api/purchase-requests', { ...asSeller, method: 'POST',
+      body: { category: 'PHONE', maxBudgetKrw: 900000, modelQuery: 'iPhone 15 Pro' } });
+    await call(base, `/api/purchase-requests/${buyer.value.id}/confirm`, { ...asSeller, method: 'POST' });
+    const search = await call(base, `/api/purchase-requests/${buyer.value.id}/search`, { ...asSeller, method: 'POST' });
+    assert.deepEqual(search.value.map(item => item.listingId), [published.value.id]);
+
+    const sold = await call(base, `/api/listings/${published.value.id}/sold`, { ...asSeller, method: 'POST' });
+    assert.equal(sold.status, 200);
+    assert.equal(sold.value.status, 'INACTIVE');
+    assert.ok(sold.value.soldAt);
+    assert.equal((await call(base, '/api/listings?status=ACTIVE', asSeller)).value.length, 0);
+    assert.equal((await call(base, `/api/listings/${published.value.id}/reactivate`, { ...asSeller, method: 'POST' })).status, 409);
+    assert.deepEqual((await call(base, `/api/purchase-requests/${buyer.value.id}/search`, { ...asSeller, method: 'POST' })).value, []);
+  }, { auth: { mode: 'strict', webSecret } });
 });
 
 test('Agent draft writes are idempotent, and only the owner can publish it', async () => {
@@ -88,7 +137,7 @@ test('Agent draft writes are idempotent, and only the owner can publish it', asy
   });
 });
 
-test('purchase requests stay private, require human confirmation, and search is repeatable', async () => {
+test('purchase requests stay private, require explicit search approval, and search is repeatable', async () => {
   await withApi(async (base, server) => {
     const draft = await call(base, '/api/purchase-requests', {
       method: 'POST', actorType: 'AGENT', requestId: 'buyer-request-1',
@@ -109,7 +158,7 @@ test('purchase requests stay private, require human confirmation, and search is 
     });
     assert.equal(prematureAgentSearch.status, 409);
     const agentConfirm = await call(base, `/api/purchase-requests/${draft.value.id}/confirm`, { method: 'POST', actorType: 'AGENT' });
-    assert.equal(agentConfirm.status, 403);
+    assert.equal(agentConfirm.status, 409, 'Agent는 최신 초안과 검색 요청 문장 없이는 확정할 수 없다');
 
     const confirmed = await call(base, `/api/purchase-requests/${draft.value.id}/confirm`, { method: 'POST' });
     assert.equal(confirmed.status, 200);
@@ -137,6 +186,16 @@ test('missing required values and invalid categories return 422', async () => {
     const invalidCategory = await call(base, '/api/listing-drafts', { method: 'POST', body: { category: 'LAPTOP' } });
     assert.equal(invalidCategory.status, 422);
     assert.equal(invalidCategory.value.code, 'VALIDATION_ERROR');
+    for (const priceKrw of [0, 100_000_001]) {
+      const invalidPrice = await call(base, '/api/listing-drafts', { method: 'POST',
+        body: { category: 'PHONE', model: 'Galaxy S23', priceKrw } });
+      assert.equal(invalidPrice.status, 422);
+      assert.match(invalidPrice.value.message, /판매 가격/);
+    }
+    const invalidBudget = await call(base, '/api/purchase-requests', { method: 'POST',
+      body: { category: 'PHONE', maxBudgetKrw: 100_000_001 } });
+    assert.equal(invalidBudget.status, 422);
+    assert.match(invalidBudget.value.message, /최대 예산/);
     const incompleteDraft = await call(base, '/api/listing-drafts', { method: 'POST', body: { category: 'PHONE', priceKrw: 300000 } });
     const prematurePublish = await call(base, `/api/listing-drafts/${incompleteDraft.value.id}/publish`, { method: 'POST' });
     assert.equal(prematurePublish.status, 422);
@@ -214,9 +273,9 @@ test('purchase API shares review guidance, owner-only detail and approval reset 
       body: { knownConstraints: { maxBudgetKrw: 1000000 } } });
     assert.equal(edited.value.readyForConfirmation, true);
     assert.equal(edited.value.nextAction.action, 'REVIEW_AND_CONFIRM');
-    assert.equal(edited.value.nextAction.actor, 'HUMAN');
+    assert.equal(edited.value.nextAction.actor, 'HUMAN_OR_SCOPED_AGENT');
     assert.ok(!edited.value.nextQuestions.some(question => question.includes('예산')));
-    assert.equal((await call(base, `${path}/confirm`, { method: 'POST', actorType: 'AGENT' })).status, 403);
+    assert.equal((await call(base, `${path}/confirm`, { method: 'POST', actorType: 'AGENT' })).status, 409);
     assert.equal((await call(base, `${path}/search`, { method: 'POST' })).status, 409);
     const confirmed = await call(base, `${path}/confirm`, { method: 'POST' });
     assert.equal(confirmed.value.humanApprovalRequired, false);

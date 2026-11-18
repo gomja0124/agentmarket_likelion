@@ -70,7 +70,7 @@ export function structurePurchaseConditions(payload, existing = {}) {
 
   const states = [];
   if (/새것\s*같|새\s*것\s*같|거의\s*새|like_new/i.test(input)) states.push('LIKE_NEW');
-  if (/양호|good/i.test(input)) states.push('GOOD');
+  if (/양호|좋음|좋은\s*상태|good/i.test(input)) states.push('GOOD');
   if (/사용감|fair/i.test(input)) states.push('FAIR');
   if (states.length === 1) extracted.conditionPreferences = states;
   else if (states.length > 1 || /상태|깨끗|미개봉/.test(input)) ambiguous.add('conditionPreferences');

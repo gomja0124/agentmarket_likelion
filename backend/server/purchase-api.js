@@ -11,7 +11,7 @@ export function purchaseRequestResponse(value) {
     nextAction: confirmed
       ? { action: 'SEARCH_LISTINGS', method: 'POST', path: `/api/purchase-requests/${value.id}/search`, actor: 'HUMAN_OR_AGENT' }
       : readyForConfirmation
-        ? { action: 'REVIEW_AND_CONFIRM', method: 'POST', path: `/api/purchase-requests/${value.id}/confirm`, actor: 'HUMAN' }
+        ? { action: 'REVIEW_AND_CONFIRM', method: 'POST', path: `/api/purchase-requests/${value.id}/confirm`, actor: 'HUMAN_OR_SCOPED_AGENT' }
         : { action: 'COMPLETE_CONDITIONS', method: 'PATCH', path: `/api/purchase-requests/${value.id}`, actor: 'HUMAN_OR_AGENT' },
   };
 }

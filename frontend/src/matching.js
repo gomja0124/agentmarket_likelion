@@ -1,3 +1,5 @@
+import { matchesModel } from './model-search.js';
+
 export function matchListings(listings, request) {
   return listings.filter(item => item.status === 'ACTIVE').map(item => {
     const matchedFields = [];
@@ -9,7 +11,7 @@ export function matchListings(listings, request) {
     else matchedFields.push('maxBudgetKrw');
     if (request.modelQuery?.trim()) {
       if (!item.model) missingFields.push('model');
-      else if (!item.model.toLowerCase().includes(request.modelQuery.trim().toLowerCase())) unmetFields.push('model');
+      else if (!matchesModel(item.model, request.modelQuery)) unmetFields.push('model');
       else matchedFields.push('model');
     }
     if (request.storageGb) {
@@ -33,6 +35,16 @@ export function listingMissing(draft) {
   return ['category', 'model', 'priceKrw'].filter(key => !draft[key] || (key === 'priceKrw' && Number(draft[key]) <= 0));
 }
 
+export function listingPublicVerificationMissing(draft) {
+  return [
+    ...listingMissing(draft),
+    !draft.storageGb && 'storageGb',
+    !draft.condition && 'condition',
+    !(draft.description || '').trim() || draft.description.trim().length < 10 ? 'description' : null,
+    !draft.images?.some(image => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(image)) && 'photo',
+  ].filter(Boolean);
+}
+
 export function requestMissing(request) {
   return ['category', 'maxBudgetKrw'].filter(key => !request[key] || (key === 'maxBudgetKrw' && Number(request[key]) <= 0));
 }
@@ -43,4 +55,13 @@ export function unresolvedFields(value, required) {
     return field == null || field === '' || (Array.isArray(field) && field.length === 0);
   });
   return [...new Set([...outstanding, ...required(value)])];
+}
+
+// A search result is a snapshot. The detail page fetches the current listing,
+// so it must not keep displaying an old MATCH after the seller edits it.
+export function isSearchResultStale(result, currentListing) {
+  const snapshot = result?.listing;
+  if (!snapshot || !currentListing || snapshot.id !== currentListing.id) return false;
+  return ['status', 'priceKrw', 'category', 'model', 'storageGb', 'condition', 'updatedAt']
+    .some(field => snapshot[field] !== currentListing[field]);
 }

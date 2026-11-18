@@ -1,10 +1,12 @@
 import { mkdirSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { DEMO_USER_ID, SEED_SELLER_ID, seedListings } from './seed.js';
+import { DEMO_USER_ID, PRESENTATION_SELLER_ID, SEED_SELLER_ID, seedListings } from './seed.js';
+import { matchDemand } from './reverse-market.js';
 
-const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql']
+const migrationPaths = ['./migrations/001_step1.sql', './migrations/002_agent_tokens.sql', './migrations/003_reverse_market.sql', './migrations/004_web_auth.sql', './migrations/005_recovery.sql', './migrations/006_connection_messages.sql']
   .map(file => fileURLToPath(new URL(file, import.meta.url)));
 const json = value => JSON.stringify(value ?? []);
 const parseJson = value => JSON.parse(value || '[]');
@@ -35,7 +37,11 @@ function listingFromRow(row) {
     description: row.description, category: row.category, brand: row.brand, model: row.model,
     storageGb: row.storage_gb, condition: row.condition, accessories: row.accessories,
     priceKrw: row.price_krw, images: parseJson(row.images_json), missingFields: parseJson(row.missing_fields_json),
-    status: row.status, publishedAt: row.published_at, createdAt: row.created_at, updatedAt: row.updated_at,
+    isSample: [SEED_SELLER_ID, PRESENTATION_SELLER_ID].includes(row.seller_id),
+    status: row.status, soldAt: row.sold_at ?? null,
+    sellerAttestedAt: row.seller_attested_at ?? null,
+    availabilityCheckedAt: row.availability_checked_at ?? null,
+    publishedAt: row.published_at, createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
 
@@ -72,15 +78,60 @@ function requestFromRow(row) {
   };
 }
 
+function demandFromRow(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id, buyerId: row.buyer_id, purchaseRequestId: row.purchase_request_id,
+    title: row.title, description: row.description, category: row.category,
+    modelQuery: row.model_query, storageGb: row.storage_gb,
+    conditionPreferences: parseJson(row.condition_preferences_json),
+    minBudgetKrw: row.min_budget_krw, maxBudgetKrw: row.max_budget_krw,
+    status: row.status, expiresAt: row.expires_at,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function connectionFromRow(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id, publicDemandId: row.public_demand_id, listingId: row.listing_id,
+    listingTitle: row.listing_title ?? null,
+    sellerId: row.seller_id, buyerId: row.buyer_id, status: row.status,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function notificationFromRow(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id, userId: row.user_id, type: row.type,
+    publicDemandId: row.public_demand_id, listingId: row.listing_id,
+    connectionRequestId: row.connection_request_id,
+    createdAt: row.created_at, readAt: row.read_at,
+  };
+}
+
 export class Store {
-  constructor({ dbPath = process.env.AGENT_MARKET_DB_PATH || '.local/agent-market.sqlite', seed = true } = {}) {
+  constructor({ dbPath = process.env.AGENT_MARKET_DB_PATH || '.local/agent-market.sqlite', seed = true,
+    requireVerifiedListings = process.env.AGENT_MARKET_REQUIRE_VERIFIED_LISTINGS === '1' } = {}) {
+    this.requireVerifiedListings = requireVerifiedListings;
     const absolutePath = dbPath === ':memory:' ? dbPath : resolve(dbPath);
     if (absolutePath !== ':memory:') mkdirSync(dirname(absolutePath), { recursive: true });
     this.db = new DatabaseSync(absolutePath);
     this.db.exec('PRAGMA foreign_keys = ON;');
+    if (absolutePath !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
     for (const migrationPath of migrationPaths) this.db.exec(readFileSync(migrationPath, 'utf8'));
     if (!this.db.prepare('PRAGMA table_info(purchase_requests)').all().some(column => column.name === 'skipped_question_fields_json')) {
       this.db.exec("ALTER TABLE purchase_requests ADD COLUMN skipped_question_fields_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!this.db.prepare('PRAGMA table_info(listings)').all().some(column => column.name === 'sold_at')) {
+      this.db.exec('ALTER TABLE listings ADD COLUMN sold_at TEXT');
+    }
+    if (!this.db.prepare('PRAGMA table_info(listings)').all().some(column => column.name === 'seller_attested_at')) {
+      this.db.exec('ALTER TABLE listings ADD COLUMN seller_attested_at TEXT');
+    }
+    if (!this.db.prepare('PRAGMA table_info(listings)').all().some(column => column.name === 'availability_checked_at')) {
+      this.db.exec('ALTER TABLE listings ADD COLUMN availability_checked_at TEXT');
     }
     this.ensureUsers();
     if (seed) this.ensureSeedListings();
@@ -91,12 +142,72 @@ export class Store {
     const now = new Date().toISOString();
     insert.run(DEMO_USER_ID, '데모 사용자', now);
     insert.run(SEED_SELLER_ID, '샘플 판매자', now);
+    insert.run(PRESENTATION_SELLER_ID, '발표용 판매자', now);
   }
 
   ensureUser(userId) {
     this.db.prepare('INSERT OR IGNORE INTO users (id, nickname, created_at) VALUES (?, ?, ?)')
       .run(userId, '데모 사용자', new Date().toISOString());
   }
+
+  createWebUser({ id, loginName, nickname, passwordHash, now }) {
+    return transaction(this.db, () => {
+      this.db.prepare('INSERT INTO users (id, nickname, created_at) VALUES (?, ?, ?)').run(id, nickname, now);
+      this.db.prepare('INSERT INTO web_credentials (user_id, login_name, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(id, loginName, passwordHash, now, now);
+      return { id, loginName, nickname };
+    });
+  }
+
+  setWebCredential({ userId, loginName, passwordHash, now }) {
+    return transaction(this.db, () => {
+      if (!this.getUser(userId)) throw new Error('사용자를 찾을 수 없습니다.');
+      this.db.prepare(`INSERT INTO web_credentials (user_id, login_name, password_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET login_name=excluded.login_name,
+        password_hash=excluded.password_hash, updated_at=excluded.updated_at`)
+        .run(userId, loginName, passwordHash, now, now);
+      this.db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
+    });
+  }
+
+  getWebCredential(loginName) {
+    return this.db.prepare(`SELECT c.user_id AS userId, c.password_hash AS passwordHash, u.nickname AS nickname
+      FROM web_credentials c JOIN users u ON u.id = c.user_id WHERE c.login_name = ?`).get(loginName);
+  }
+  getWebCredentialByUser(userId) {
+    return this.db.prepare('SELECT password_hash AS passwordHash FROM web_credentials WHERE user_id=?').get(userId);
+  }
+
+  saveRecoveryCode(userId, codeHash, at) {
+    this.db.prepare(`INSERT INTO web_recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET code_hash=excluded.code_hash, created_at=excluded.created_at`)
+      .run(userId, codeHash, at);
+  }
+  getRecoveryCode(userId) {
+    return this.db.prepare('SELECT code_hash AS codeHash FROM web_recovery_codes WHERE user_id=?').get(userId)?.codeHash ?? null;
+  }
+  resetWebPassword(userId, passwordHash, at) {
+    return transaction(this.db, () => {
+      this.db.prepare('UPDATE web_credentials SET password_hash=?, updated_at=? WHERE user_id=?').run(passwordHash, at, userId);
+      this.db.prepare('DELETE FROM web_sessions WHERE user_id=?').run(userId);
+      this.db.prepare('UPDATE agent_tokens SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL').run(at, userId);
+      this.db.prepare('DELETE FROM web_recovery_codes WHERE user_id=?').run(userId);
+    });
+  }
+
+  saveWebSession({ sessionHash, userId, createdAt, expiresAt }) {
+    this.db.prepare('INSERT INTO web_sessions (session_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+      .run(sessionHash, userId, createdAt, expiresAt);
+  }
+
+  getWebSession(sessionHash, now) {
+    return this.db.prepare(`SELECT s.session_hash AS sessionHash, s.user_id AS userId,
+      s.expires_at AS expiresAt, u.nickname AS nickname FROM web_sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.session_hash = ? AND s.expires_at > ?`).get(sessionHash, now);
+  }
+
+  deleteWebSession(sessionHash) { this.db.prepare('DELETE FROM web_sessions WHERE session_hash = ?').run(sessionHash); }
+  purgeExpiredWebSessions(now) { this.db.prepare('DELETE FROM web_sessions WHERE expires_at <= ?').run(now); }
 
   transaction(work) { return transaction(this.db, work); }
 
@@ -125,11 +236,26 @@ export class Store {
     });
   }
 
-  listListings({ status = 'ACTIVE', query = '' } = {}) {
+  listListings({ status = 'ACTIVE', query = '', includeSamples = true } = {}) {
     const search = `%${query.trim().toLowerCase()}%`;
     return this.db.prepare(`SELECT * FROM listings WHERE status = ?
+      AND (? = 1 OR seller_id NOT IN (?, ?))
       AND (? = '' OR lower(coalesce(title, '') || ' ' || coalesce(model, '') || ' ' || coalesce(brand, '')) LIKE ?)
-      ORDER BY created_at DESC, id`).all(status, query.trim(), search).map(listingFromRow);
+      ORDER BY created_at DESC, id`).all(status, includeSamples ? 1 : 0, SEED_SELLER_ID, PRESENTATION_SELLER_ID, query.trim(), search)
+      .map(listingFromRow).filter(listing => this.isPublicListing(listing));
+  }
+
+  isPublicListing(listing, at = new Date().toISOString()) {
+    if (!listing || listing.status !== 'ACTIVE') return false;
+    if (!this.requireVerifiedListings || listing.isSample) return true;
+    return Boolean(listing.sellerAttestedAt && listing.availabilityCheckedAt &&
+      Date.parse(listing.availabilityCheckedAt) > Date.parse(at) - 7 * 86_400_000);
+  }
+
+  confirmListingAvailability(listingId, at) {
+    this.db.prepare(`UPDATE listings SET seller_attested_at=?, availability_checked_at=?, updated_at=?
+      WHERE id=? AND status='ACTIVE' AND sold_at IS NULL`).run(at, at, at, listingId);
+    return this.getListing(listingId);
   }
 
   getListing(id) { return listingFromRow(this.db.prepare('SELECT * FROM listings WHERE id = ?').get(id)); }
@@ -170,7 +296,8 @@ export class Store {
       if (draft.sourceListingId) {
         this.db.prepare(`UPDATE listings SET draft_id=?, title=?, description=?, category=?, brand=?, model=?,
           storage_gb=?, condition=?, accessories=?, price_krw=?, images_json=?, missing_fields_json=?,
-          status='ACTIVE', published_at=?, updated_at=? WHERE id=? AND seller_id=? AND status='ACTIVE'`)
+          status='ACTIVE', seller_attested_at=NULL, availability_checked_at=NULL,
+          published_at=?, updated_at=? WHERE id=? AND seller_id=? AND status='ACTIVE'`)
           .run(draft.id, draft.title, draft.description, draft.category, draft.brand, draft.model,
             draft.storageGb, draft.condition, draft.accessories, draft.priceKrw, json(draft.images),
             json(draft.missingFields), now, now, draft.sourceListingId, draft.sellerId);
@@ -197,6 +324,17 @@ export class Store {
     return this.getListing(listingId);
   }
 
+  reactivateListing(listingId, now) {
+    this.db.prepare("UPDATE listings SET status='ACTIVE', seller_attested_at=NULL, availability_checked_at=NULL, updated_at=? WHERE id=?").run(now, listingId);
+    return this.getListing(listingId);
+  }
+
+  markListingSold(listingId, now) {
+    this.db.prepare("UPDATE listings SET status='INACTIVE', sold_at=?, updated_at=? WHERE id=? AND status='ACTIVE'")
+      .run(now, now, listingId);
+    return this.getListing(listingId);
+  }
+
   savePurchaseRequest(request) {
     const values = [request.id, request.buyerId, request.source, request.category, request.modelQuery,
       request.maxBudgetKrw, request.storageGb, json(request.conditionPreferences), json(request.missingFields),
@@ -217,8 +355,10 @@ export class Store {
     return this.getPurchaseRequest(id);
   }
 
-  activeListingsForSearch() {
-    return this.db.prepare("SELECT * FROM listings WHERE status='ACTIVE' ORDER BY id").all().map(listingFromRow);
+  activeListingsForSearch({ includeSamples = true, includePresentation = false } = {}) {
+    return this.db.prepare("SELECT * FROM listings WHERE status='ACTIVE' AND (? = 1 OR seller_id <> ?) AND (? = 1 OR seller_id <> ?) ORDER BY id")
+      .all(includeSamples ? 1 : 0, SEED_SELLER_ID, includeSamples || includePresentation ? 1 : 0, PRESENTATION_SELLER_ID)
+      .map(listingFromRow).filter(listing => this.isPublicListing(listing));
   }
 
   insertSearchResults(results) {
@@ -271,6 +411,115 @@ export class Store {
   getUser(id) {
     const row = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     return row ? { id: row.id, nickname: row.nickname, createdAt: row.created_at } : undefined;
+  }
+
+  getPublicDemand(id) { return demandFromRow(this.db.prepare('SELECT * FROM public_demands WHERE id = ?').get(id)); }
+  getPublicDemandByRequest(requestId) {
+    return demandFromRow(this.db.prepare('SELECT * FROM public_demands WHERE purchase_request_id = ?').get(requestId));
+  }
+  listPublicDemandsByBuyer(buyerId) {
+    return this.db.prepare('SELECT * FROM public_demands WHERE buyer_id = ? ORDER BY updated_at DESC, id')
+      .all(buyerId).map(demandFromRow);
+  }
+  listActivePublicDemands() {
+    return this.db.prepare("SELECT * FROM public_demands WHERE status = 'ACTIVE' ORDER BY updated_at DESC, id")
+      .all().map(demandFromRow);
+  }
+  savePublicDemand(demand) {
+    this.db.prepare(`INSERT INTO public_demands
+      (id, buyer_id, purchase_request_id, title, description, category, model_query, storage_gb,
+       condition_preferences_json, min_budget_krw, max_budget_krw, status, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET title=excluded.title, description=excluded.description,
+        model_query=excluded.model_query, storage_gb=excluded.storage_gb,
+        condition_preferences_json=excluded.condition_preferences_json,
+        min_budget_krw=excluded.min_budget_krw, max_budget_krw=excluded.max_budget_krw,
+        status=excluded.status, expires_at=excluded.expires_at, updated_at=excluded.updated_at`)
+      .run(demand.id, demand.buyerId, demand.purchaseRequestId, demand.title, demand.description,
+        demand.category, demand.modelQuery, demand.storageGb, json(demand.conditionPreferences),
+        demand.minBudgetKrw, demand.maxBudgetKrw, demand.status, demand.expiresAt,
+        demand.createdAt, demand.updatedAt);
+    return this.getPublicDemand(demand.id);
+  }
+  expirePublicDemands(now) {
+    this.db.prepare("UPDATE public_demands SET status = 'EXPIRED', updated_at = ? WHERE status IN ('ACTIVE', 'PAUSED') AND expires_at IS NOT NULL AND expires_at <= ?")
+      .run(now, now);
+  }
+  matchingDemandsForListing(listing) {
+    if (!this.isPublicListing(listing)) return [];
+    return this.listActivePublicDemands().filter(demand => demand.buyerId !== listing.sellerId).map(demand => ({
+      demand, match: matchDemand(listing, demand),
+    })).filter(item => item.match.matchStatus !== 'EXCLUDED');
+  }
+  addNotification({ userId, type, publicDemandId, listingId, connectionRequestId = null, now }) {
+    this.db.prepare(`INSERT OR IGNORE INTO notifications
+      (id, user_id, type, public_demand_id, listing_id, connection_request_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), userId, type, publicDemandId, listingId, connectionRequestId, now);
+  }
+  notifyMatchesForDemand(demand, now) {
+    if (demand.status !== 'ACTIVE') return;
+    for (const listing of this.activeListingsForSearch({ includeSamples: false, includePresentation: true })) {
+      if (listing.sellerId === demand.buyerId) continue;
+      if (matchDemand(listing, demand).matchStatus !== 'MATCH') continue;
+      this.addNotification({ userId: demand.buyerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+      this.addNotification({ userId: listing.sellerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+    }
+  }
+  notifyMatchesForListing(listing, now) {
+    if (listing.status !== 'ACTIVE') return;
+    for (const { demand, match } of this.matchingDemandsForListing(listing)) {
+      if (match.matchStatus !== 'MATCH') continue;
+      this.addNotification({ userId: demand.buyerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+      this.addNotification({ userId: listing.sellerId, type: 'NEW_MATCH', publicDemandId: demand.id, listingId: listing.id, now });
+    }
+  }
+  getConnectionRequest(id) {
+    return connectionFromRow(this.db.prepare('SELECT c.*, l.title AS listing_title FROM connection_requests c JOIN listings l ON l.id = c.listing_id WHERE c.id = ?').get(id));
+  }
+  getConnectionForPair(publicDemandId, listingId) {
+    return connectionFromRow(this.db.prepare('SELECT c.*, l.title AS listing_title FROM connection_requests c JOIN listings l ON l.id = c.listing_id WHERE c.public_demand_id = ? AND c.listing_id = ?')
+      .get(publicDemandId, listingId));
+  }
+  createConnectionRequest({ id, demand, listing, now }) {
+    this.db.prepare(`INSERT INTO connection_requests
+      (id, public_demand_id, listing_id, seller_id, buyer_id, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)`)
+      .run(id, demand.id, listing.id, listing.sellerId, demand.buyerId, now, now);
+    return this.getConnectionRequest(id);
+  }
+  updateConnectionRequest(id, status, now) {
+    this.db.prepare('UPDATE connection_requests SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+    return this.getConnectionRequest(id);
+  }
+  listConnectionMessages(connectionId) {
+    return this.db.prepare(`SELECT id, connection_request_id AS connectionRequestId,
+      sender_id AS senderId, body, created_at AS createdAt FROM connection_messages
+      WHERE connection_request_id=? ORDER BY created_at, id LIMIT 200`).all(connectionId);
+  }
+  countRecentConnectionMessages(connectionId, senderId, since) {
+    return this.db.prepare(`SELECT COUNT(*) AS count FROM connection_messages
+      WHERE connection_request_id=? AND sender_id=? AND created_at>=?`).get(connectionId, senderId, since).count;
+  }
+  addConnectionMessage({ id, connectionId, senderId, body, at }) {
+    this.db.prepare(`INSERT INTO connection_messages (id, connection_request_id, sender_id, body, created_at)
+      VALUES (?, ?, ?, ?, ?)`).run(id, connectionId, senderId, body, at);
+    return this.listConnectionMessages(connectionId).find(message => message.id === id);
+  }
+  purgeOldConnectionMessages(before) {
+    this.db.prepare('DELETE FROM connection_messages WHERE created_at < ?').run(before);
+  }
+  listConnectionRequests(userId) {
+    return this.db.prepare('SELECT c.*, l.title AS listing_title FROM connection_requests c JOIN listings l ON l.id = c.listing_id WHERE c.buyer_id = ? OR c.seller_id = ? ORDER BY c.created_at DESC')
+      .all(userId, userId).map(connectionFromRow);
+  }
+  listNotifications(userId) {
+    return this.db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id LIMIT 100')
+      .all(userId).map(notificationFromRow);
+  }
+  markNotificationRead(id, userId, now) {
+    this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL').run(now, id, userId);
+    return notificationFromRow(this.db.prepare('SELECT * FROM notifications WHERE id = ? AND user_id = ?').get(id, userId));
   }
 
   close() { this.db.close(); }

@@ -17,17 +17,17 @@ The proposal describes PostgreSQL for the eventual service. This thin demo uses 
 
 ## Demo identity only
 
-For local UI/API integration, requests default to demo user `00000000-0000-4000-8000-000000000001` and a human actor. The MCP adapter may pass `X-User-Id`, `X-Actor-Type: AGENT`, and `Idempotency-Key` headers. Those headers are **not authentication**: this server has no login/token verification and must only bind to localhost. Production must derive user and actor identity from verified credentials before exposing these routes.
+For local UI/API integration, requests default to demo user `00000000-0000-4000-8000-000000000001` and a human actor. Demo-mode `X-User-Id` and `X-Actor-Type` headers are **not authentication**. Agent bearer tokens are validated with scopes, expiry and revocation. In `strict` mode, human requests require a server-held `X-Web-Secret`; the static Web frontend cannot hold that secret and still needs a login/session relay before public deployment.
 
-An Agent may create/update drafts and request search for a purchase request already confirmed by its owner. Only the human owner can publish a listing, confirm a purchase request, or deactivate a listing. A confirmed request is the human authorization prerequisite for later Agent search calls.
+An Agent may create/update drafts and request search for a purchase request already confirmed by its owner. Only the human owner can publish, deactivate or reactivate a listing and confirm a purchase request. A confirmed request is the human authorization prerequisite for later Agent search calls.
 
 ## Routes
 
 | Method and path | Purpose | Success |
 | --- | --- | --- |
-| `GET /api/health` | Health | `{ status, database, step }` |
+| `GET /api/health` | Health and enabled MCP feature stage | `{ status, database, step, mcpStep2Enabled, authMode }` |
 | `GET /api/categories/:category/schema` | PHONE/TABLET fields and question hints | Category schema object |
-| `GET /api/listings?status=ACTIVE&q=` | Public active listings, optional text query | `Listing[]` |
+| `GET /api/listings?status=ACTIVE&q=&includeSamples=true` | Public active listings, optional text query. Strict production excludes seeded samples unless `includeSamples=true` | `Listing[]` |
 | `GET /api/listings/:id` | Active listing detail (inactive detail is owner-only) | `Listing` |
 | `GET /api/listings/mine` | Current user's listings | `Listing[]` |
 | `GET /api/listing-drafts/mine` | Current user's unpublished drafts | `ListingDraft[]` |
@@ -36,12 +36,14 @@ An Agent may create/update drafts and request search for a purchase request alre
 | `POST /api/listing-drafts/:id/publish` | Human approval; creates an ACTIVE listing snapshot | `Listing` |
 | `POST /api/listings/:id/drafts` | Start a new draft from an owned active listing | `ListingDraft` |
 | `POST /api/listings/:id/deactivate` | Human owner deactivates a listing | `Listing` |
+| `POST /api/listings/:id/reactivate` | Human owner reactivates an inactive listing | `Listing` |
+| `POST /api/listings/:id/sold` | Human owner marks an active listing sold; it becomes inactive and cannot be reactivated | `Listing` with `soldAt` |
 | `GET /api/purchase-requests/:id` | Owner-only draft/confirmed request and review guidance | `PurchaseRequestResponse` |
 | `GET /api/purchase-requests/mine` | Current user's private requests | `PurchaseRequest[]` |
 | `POST /api/purchase-requests` | Create a private draft | `PurchaseRequest` |
 | `PATCH /api/purchase-requests/:id` | Update an owned request; returns it to DRAFT | `PurchaseRequest` |
 | `POST /api/purchase-requests/:id/confirm` | Human owner confirms category and budget | `PurchaseRequest` |
-| `POST /api/purchase-requests/:id/search` | Search confirmed request against ACTIVE listings | `SearchResult[]` |
+| `POST /api/purchase-requests/:id/search?includeSamples=true` | Search confirmed request against ACTIVE listings. Strict production excludes seeded samples unless explicitly included | `SearchResult[]` |
 
 Draft creation accepts partial values and returns `missingFields`. Listing publication requires `category`, `model`, and positive `priceKrw`; request confirmation requires `category` and positive `maxBudgetKrw`. Unknown optional values stay `null` or in `missingFields`; the server does not infer them. `conditionPreferences` is an array of `LIKE_NEW`, `GOOD`, and `FAIR`, following the current frontend API draft.
 
@@ -63,7 +65,9 @@ Errors use `{ "code": "...", "message": "...", "details": {} }` where applicable
 | 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds local limit |
 | 422 | `VALIDATION_ERROR` | Invalid fields or missing required values |
 
-The local identity headers are a temporary adapter seam, not an authorization system. Purchase requests are only returned from the owner-scoped `mine` route; no seller-facing request route exists.
+The local identity headers are a temporary adapter seam, not an authorization system. Purchase requests are only returned from the owner-scoped `mine` route; no seller-facing private request route exists. Step 2 public demand routes are documented in [step2-api.md](step2-api.md).
+
+`step` is `2` when `AGENT_MARKET_ENABLE_STEP2=1` and `1` otherwise. `mcpStep2Enabled` reports the same feature flag explicitly, including in the health object returned by the MCP `get_market_guide` tool.
 
 ## Data relationships
 

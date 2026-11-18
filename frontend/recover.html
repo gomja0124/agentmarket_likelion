@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>계정 복구 · Agent Market</title><link rel="stylesheet" href="/src/styles.css" /></head>
+  <body class="login-body"><main class="login-wrap">
+    <a class="login-brand" href="/">agent market<span>.</span></a>
+    <form id="recover-form" class="login-card">
+      <span class="section-kicker">ACCOUNT RECOVERY</span><h1>계정 복구</h1>
+      <p>회원가입 또는 계정 화면에서 보관한 일회용 복구 코드를 입력해 주세요. 재설정하면 모든 로그인과 Agent 토큰이 해제됨.</p>
+      <label class="field"><span class="field-label">로그인 이름</span><input name="loginName" autocomplete="username" required /></label>
+      <label class="field"><span class="field-label">복구 코드</span><input name="recoveryCode" autocomplete="off" required /></label>
+      <label class="field"><span class="field-label">새 비밀번호</span><input name="newPassword" type="password" autocomplete="new-password" required minlength="12" /></label>
+      <label class="field"><span class="field-label">새 비밀번호 확인</span><input name="passwordConfirm" type="password" autocomplete="new-password" required minlength="12" /></label>
+      <p id="recover-message" class="login-error" role="status" hidden></p>
+      <button class="btn btn-dark full" type="submit">비밀번호 재설정</button>
+      <p class="auth-switch"><a href="/login">로그인으로 돌아가기</a></p>
+    </form>
+  </main><script type="module" src="/src/recover.js"></script></body>
+</html>

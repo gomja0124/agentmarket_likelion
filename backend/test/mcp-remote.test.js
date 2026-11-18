@@ -17,7 +17,7 @@ async function withStack(run) {
   const api = createApiServer({ dbPath: ':memory:', auth: { mode: 'strict', webSecret: WEB_SECRET } });
   await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
   const apiUrl = `http://127.0.0.1:${api.address().port}`;
-  const mcp = createMcpHttpServer({ apiUrl, webUrl: 'https://web.example', rateLimitPerMinute: 30, identityTtlMs: 200 });
+  const mcp = createMcpHttpServer({ apiUrl, webUrl: 'https://web.example', rateLimitPerMinute: 30 });
   await new Promise(resolve => mcp.listen(0, '127.0.0.1', resolve));
   const mcpUrl = new URL(`http://127.0.0.1:${mcp.address().port}/mcp`);
 
@@ -62,7 +62,6 @@ test('remote MCP rejects anonymous, malformed and revoked tokens', async () => {
     await client.close();
 
     await human('DELETE', `/api/agent-tokens/${token.id}`);
-    await new Promise(resolve => setTimeout(resolve, 250)); // identity 캐시 만료 대기
     const afterRevoke = await fetch(mcpUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
     assert.equal(afterRevoke.status, 401);
 
@@ -78,7 +77,8 @@ test('tool list follows token scopes; backend still enforces them', async () => 
     const readOnly = await issue('read-only', ['read']);
     const ro = await connect(readOnly.token);
     const roTools = (await ro.client.listTools()).tools.map(t => t.name).sort();
-    assert.deepEqual(roTools, ['browse_listings', 'get_category_schema', 'get_listing', 'get_market_guide', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'whoami']);
+    assert.deepEqual(roTools, ['browse_listings', 'get_category_schema', 'get_listing', 'get_market_guide', 'list_my_listing_drafts', 'list_my_listings', 'list_my_purchase_requests', 'review_listing_details', 'whoami']);
+    assert.ok(!roTools.includes('confirm_purchase_request'));
     const me = await ro.call('whoami');
     assert.equal(me.value.userId, demoUser);
     assert.deepEqual(me.value.scopes, ['read']);
@@ -101,6 +101,139 @@ test('tool list follows token scopes; backend still enforces them', async () => 
   });
 });
 
+test('an Agent cannot run an unselected permission even by calling the API directly', async () => {
+  await withStack(async ({ apiUrl, issue, connect, human }) => {
+    const readOnly = await issue('read-only-scenario', ['read']);
+    const reader = await connect(readOnly.token);
+    const readTools = (await reader.client.listTools()).tools.map(tool => tool.name);
+    assert.ok(!readTools.includes('create_purchase_request_draft'));
+    assert.ok(!readTools.includes('confirm_purchase_request'));
+    assert.ok(!readTools.includes('search_listings'));
+    const deniedCreate = await fetch(`${apiUrl}/api/purchase-requests`, {
+      method: 'POST', headers: { Authorization: `Bearer ${readOnly.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': 'read-only-create' },
+      body: JSON.stringify({ category: 'PHONE', maxBudgetKrw: 480000 }),
+    });
+    assert.equal(deniedCreate.status, 403);
+    assert.equal((await human('GET', '/api/purchase-requests/mine')).value.length, 0, '거부된 시도는 구매 조건을 만들지 않는다');
+    await reader.client.close();
+
+    const draftOnly = await issue('draft-without-confirm', ['purchase:write', 'search']);
+    const agent = await connect(draftOnly.token);
+    const tools = (await agent.client.listTools()).tools.map(tool => tool.name);
+    assert.ok(tools.includes('create_purchase_request_draft'));
+    assert.ok(tools.includes('search_listings'));
+    assert.ok(!tools.includes('confirm_purchase_request'));
+    const draft = await agent.call('create_purchase_request_draft', { knownConstraints: { category: 'PHONE', maxBudgetKrw: 480000 } });
+    const deniedConfirm = await fetch(`${apiUrl}/api/purchase-requests/${draft.value.requestId}/confirm`, {
+      method: 'POST', headers: { Authorization: `Bearer ${draftOnly.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': 'draft-only-confirm' },
+      body: JSON.stringify({ expectedUpdatedAt: draft.value.purchaseRequest.updatedAt, userSearchRequest: '이 조건으로 찾아줘' }),
+    });
+    assert.equal(deniedConfirm.status, 403);
+    const prematureSearch = await agent.call('search_listings', { purchaseRequestId: draft.value.requestId });
+    assert.equal(prematureSearch.value.code, 'INVALID_STATE');
+    assert.equal((await human('GET', `/api/purchase-requests/${draft.value.requestId}`)).value.status, 'DRAFT');
+    await agent.client.close();
+  });
+});
+
+test('a seller price change after Agent browsing is used by the later buyer search', async () => {
+  await withStack(async ({ issue, connect, human }) => {
+    const created = await human('POST', '/api/listing-drafts', {
+      category: 'PHONE', model: 'Galaxy S23', storageGb: 256, condition: 'GOOD', priceKrw: 480000,
+      title: 'Galaxy S23 가격 변경 시나리오',
+    });
+    const published = await human('POST', `/api/listing-drafts/${created.value.id}/publish`);
+    assert.equal(published.status, 201);
+    const token = await issue('price-race-buyer', ['read', 'purchase:write', 'purchase:confirm', 'search']);
+    const buyer = await connect(token.token);
+    const browsed = await buyer.call('browse_listings', { query: 'Galaxy S23' });
+    assert.equal(browsed.value.listings.find(item => item.id === published.value.id).priceKrw, 480000);
+
+    const revision = await human('POST', `/api/listings/${published.value.id}/drafts`, { priceKrw: 520000 });
+    assert.equal(revision.status, 201);
+    const changed = await human('POST', `/api/listing-drafts/${revision.value.id}/publish`);
+    assert.equal(changed.value.id, published.value.id);
+    assert.equal(changed.value.priceKrw, 520000);
+
+    const draft = await buyer.call('create_purchase_request_draft', { knownConstraints: {
+      category: 'PHONE', modelQuery: 'Galaxy S23', storageGb: 256, conditionPreferences: ['GOOD'], maxBudgetKrw: 480000,
+    } });
+    const confirmed = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId: draft.value.requestId, expectedUpdatedAt: draft.value.purchaseRequest.updatedAt,
+      userSearchRequest: 'Galaxy S23 256GB 48만원 이하 찾아줘',
+    });
+    assert.equal(confirmed.value.status, 'CONFIRMED');
+    const search = await buyer.call('search_listings', { purchaseRequestId: draft.value.requestId });
+    const result = search.value.results.find(item => item.listingId === published.value.id);
+    assert.equal(result.listing.priceKrw, 520000);
+    assert.equal(result.matchStatus, 'EXCLUDED');
+    assert.ok(result.unmetFields.includes('maxBudgetKrw'));
+    const latest = await buyer.call('get_listing', { listingId: published.value.id });
+    assert.equal(latest.value.priceKrw, 520000);
+    await buyer.client.close();
+  });
+});
+
+test('Claude-style natural language request can be confirmed and matched through scoped remote MCP', async () => {
+  await withStack(async ({ issue, connect, human, apiUrl }) => {
+    const listingDraft = await human('POST', '/api/listing-drafts', {
+      category: 'PHONE', model: 'Galaxy S23', storageGb: 256, condition: 'GOOD',
+      priceKrw: 480000, description: '발표 검증용 Galaxy S23 256GB',
+    });
+    assert.equal(listingDraft.status, 201);
+    const listing = await human('POST', `/api/listing-drafts/${listingDraft.value.id}/publish`);
+    assert.equal(listing.status, 201);
+
+    const token = await issue('buyer-chat', ['purchase:write', 'purchase:confirm', 'search']);
+    const buyer = await connect(token.token);
+    const names = (await buyer.client.listTools()).tools.map(tool => tool.name);
+    assert.ok(names.includes('create_purchase_request_draft'));
+    assert.ok(names.includes('confirm_purchase_request'));
+    assert.ok(names.includes('search_listings'));
+
+    const userText = '핸드폰 Galaxy S23 256GB 상태 좋음 480000원 이하 찾아줘';
+    const draft = await buyer.call('create_purchase_request_draft', { naturalLanguageRequest: userText });
+    assert.equal(draft.isError, false);
+    assert.deepEqual(draft.value.structuredConditions, {
+      category: 'PHONE', modelQuery: 'Galaxy S23', maxBudgetKrw: 480000,
+      storageGb: 256, conditionPreferences: ['GOOD'],
+    });
+    const purchaseRequestId = draft.value.requestId;
+    const expectedUpdatedAt = draft.value.purchaseRequest.updatedAt;
+
+    const premature = await buyer.call('search_listings', { purchaseRequestId });
+    assert.equal(premature.value.code, 'INVALID_STATE');
+    const stale = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt: '2020-01-01T00:00:00.000Z', userSearchRequest: userText,
+    });
+    assert.equal(stale.value.code, 'INVALID_STATE');
+    const noIntent = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt, userSearchRequest: 'Galaxy S23 256GB',
+    });
+    assert.equal(noIntent.value.code, 'VALIDATION_ERROR');
+    const negatedIntent = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt, userSearchRequest: '아직 검색해주지 마',
+    });
+    assert.equal(negatedIntent.value.code, 'VALIDATION_ERROR');
+
+    const confirmed = await buyer.call('confirm_purchase_request', {
+      purchaseRequestId, expectedUpdatedAt, userSearchRequest: userText,
+    });
+    assert.equal(confirmed.isError, false);
+    assert.equal(confirmed.value.status, 'CONFIRMED');
+    const search = await buyer.call('search_listings', { purchaseRequestId });
+    assert.equal(search.isError, false);
+    assert.ok(search.value.results.some(result => result.listing.id === listing.value.id && result.matchStatus === 'MATCH'));
+    assert.ok(search.value.results.every(result => !('images' in result.listing)), 'AI 검색 응답에 사진 데이터가 포함되지 않는다');
+    assert.ok(search.text.length < 30000, '사진이 많은 매물도 대화에서 빠르게 읽을 수 있는 크기로 반환한다');
+    const stored = await fetch(`${apiUrl}/api/purchase-requests/${purchaseRequestId}`, {
+      headers: { Authorization: `Bearer ${token.token}` },
+    });
+    assert.equal((await stored.json()).status, 'CONFIRMED');
+    await buyer.client.close();
+  });
+});
+
 test('full buyer flow over remote transport with human confirmation in between', async () => {
   await withStack(async ({ issue, connect, human }) => {
     const buyer = await issue('buyer-agent', ['purchase:write', 'search']);
@@ -117,8 +250,10 @@ test('full buyer flow over remote transport with human confirmation in between',
     assert.equal((await human('POST', `/api/purchase-requests/${id}/confirm`)).status, 200);
     const search = await b.call('search_listings', { purchaseRequestId: id });
     assert.equal(search.isError, false);
-    assert.equal(search.value.summary.total, 12);
-    assert.ok(search.value.results.every(r => r.matchStatus !== 'MATCH' || r.listing.category === 'TABLET'));
+    assert.equal(search.value.summary.total, 0, '운영 검색은 시연용 매물을 기본 제외한다');
+    const demoSearch = await b.call('search_listings', { purchaseRequestId: id, includeSamples: true });
+    assert.equal(demoSearch.value.summary.total, 12);
+    assert.ok(demoSearch.value.results.every(r => r.matchStatus !== 'MATCH' || r.listing.category === 'TABLET'));
     await b.client.close();
   });
 });
@@ -156,4 +291,15 @@ test('stdio mode also works with a bearer token against a strict backend', async
     await new Promise(resolve => api.close(resolve));
     api.store.close();
   }
+});
+
+test('oversized MCP request gets a 413 JSON-RPC error, not a reset', async () => {
+  await withStack(async ({ issue, mcpUrl }) => {
+    const token = (await issue('big', ['read'])).token;
+    const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}` };
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'a'.repeat(1_500_000) } });
+    const response = await fetch(mcpUrl, { method: 'POST', headers, body });
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, -32700);
+  });
 });

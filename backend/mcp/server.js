@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ApiError } from './api-client.js';
 
 export const SERVER_NAME = 'agent-market';
-export const SERVER_VERSION = '0.2.0';
+export const SERVER_VERSION = '0.3.0';
 
 const CATEGORY = z.enum(['PHONE', 'TABLET']);
 const CONDITION = z.enum(['LIKE_NEW', 'GOOD', 'FAIR']);
@@ -17,18 +17,18 @@ const UUID = z.string().uuid();
  * 모든 쓰기 응답에는 humanApprovalRequired와 nextAction이 들어간다(스펙 3절).
  */
 export const MARKET_GUIDE = {
-  summary: 'Agent Market은 사람이 쓰는 중고 핸드폰·태블릿 마켓이다. 외부 Agent는 판매글 초안 작성, 구매 조건 구조화, 확정된 조건으로 매물 검색까지만 수행하고, 게시·조건 확정·거래 결정은 반드시 사람이 Web에서 직접 한다.',
+  summary: 'Agent Market은 중고 핸드폰·태블릿 마켓이다. 외부 Agent는 구매자의 명시적인 검색 요청을 받은 뒤 비공개 구매 조건을 확정하고 매칭까지 실행할 수 있다. 판매글 게시·구해요 공개·연결 결정은 사람이 Web에서 직접 한다.',
   categories: ['PHONE', 'TABLET'],
-  conditions: { LIKE_NEW: '거의 새것', GOOD: '사용감 있음, 정상 작동', FAIR: '흠집·하자 있음' },
+  conditions: { LIKE_NEW: '거의 새것', GOOD: '좋음', FAIR: '사용감 있음' },
   agentCan: [
     '매물 조회 (browse_listings, get_listing)',
     '판매글 초안 생성·수정 (create_listing_draft, update_listing_draft)',
     '구매 조건 초안 생성·수정 (create_purchase_request_draft, update_purchase_request_draft)',
-    '사람이 확정한 구매 조건으로 검색·매칭 실행 (search_listings)',
+    '구매자가 대화에서 명시적으로 검색을 요청한 조건 확정 (confirm_purchase_request, 별도 권한 필요)',
+    '구매자가 승인한 구매 조건으로 검색·매칭 실행 (search_listings)',
   ],
   agentCannot: [
     '판매글 게시 (사람이 Web에서 게시 버튼을 눌러야 ACTIVE Listing이 된다)',
-    '구매 조건 확정 (사람이 Web에서 확정해야 search_listings가 가능하다)',
     '매물 비활성화, 결제, 연락처 공개, 거래 확정',
   ],
   sellerFlow: [
@@ -40,21 +40,23 @@ export const MARKET_GUIDE = {
   buyerFlow: [
     '1. 사용자의 요청을 naturalLanguageRequest로 넘기고, 이미 알아낸 조건은 knownConstraints에 넣어 create_purchase_request_draft를 호출한다.',
     '2. 응답의 nextQuestions 순서대로(카테고리 → 예산 → 모델 → 용량) 한두 개씩 질문하고 update_purchase_request_draft로 반영한다.',
-    '3. readyForConfirmation이 true가 되면 사용자에게 Web에서 확인·확정해 달라고 안내한다.',
-    '4. 사용자가 확정했다고 하면 search_listings를 호출한다. 확정 전이면 INVALID_STATE로 거부되므로 다시 안내한다.',
-    '5. 결과는 matchStatus(MATCH / NEEDS_CONFIRMATION / EXCLUDED)와 matched/unmet/missingFields로 설명한다. missingFields는 정상으로 추정하지 않는다.',
+    '3. readyForConfirmation이 true면 조건(최대 예산·모델·최소 용량·상태)을 사용자에게 요약한다. 사용자가 이미 "찾아줘"처럼 명시적으로 검색을 요청했고 조건이 분명하면 다시 묻지 않아도 된다. 그렇지 않으면 "이 조건으로 검색해줘"라는 명시적 답을 받는다.',
+    '4. purchase:confirm 권한이 있으면 초안의 최신 updatedAt과 실제 사용자 검색 요청 문장을 confirm_purchase_request에 넘긴다. 검색을 요청하지 않았거나 조건이 모호하면 확정하지 않는다. 권한이 없으면 Web에서 확정하도록 안내한다.',
+    '5. 확정 후 search_listings를 호출한다. 사용자가 시연용 매물을 포함해 달라고 했을 때만 includeSamples=true를 설정한다.',
+    '6. 결과는 matchStatus(MATCH / NEEDS_CONFIRMATION / EXCLUDED)와 matched/unmet/missingFields로 설명한다. missingFields는 정상으로 추정하지 않는다.',
   ],
   retryRule: '쓰기 tool은 멱등하다. 네트워크 오류로 재시도할 때는 같은 requestId를 다시 넘기면 중복 생성되지 않는다.',
   scopes: {
     read: '검색·조회',
     'listing:write': '판매글 초안 생성·수정',
     'purchase:write': '구매 조건 초안 생성·수정',
+    'purchase:confirm': '명시적인 구매자 검색 요청 뒤 조건 확정',
     search: '확정된 조건으로 검색·매칭 실행',
   },
   scopeRule: '토큰에 없는 권한의 tool은 목록에 나타나지 않는다. 필요한 권한이 없으면 사용자에게 Web에서 권한을 추가한 토큰을 발급해 달라고 안내한다.',
 };
 
-function instructionsText() {
+function instructionsText(step2 = false) {
   return [
     MARKET_GUIDE.summary,
     '',
@@ -66,6 +68,7 @@ function instructionsText() {
     '',
     '값을 모르면 비워 두고 사용자에게 묻는다. 지어내지 않는다. ' + MARKET_GUIDE.retryRule,
     MARKET_GUIDE.scopeRule,
+    ...(step2 ? ['', 'Step 2: 공개 수요 초안 제안·수정, 내 매물에 맞는 공개 수요 탐색, 알림 조회를 할 수 있다. 공개 승인·연결 요청 전송·수락은 사람이 Web에서 직접 한다.'] : []),
   ].join('\n');
 }
 
@@ -99,7 +102,7 @@ export function nextActionFor(kind, value, webUrl) {
   if (kind === 'PurchaseRequest') {
     if (value.status === 'CONFIRMED') return '구매 조건이 확정되었습니다. search_listings로 매물을 검색할 수 있습니다.';
     if (value.missingFields?.length) return `필수 조건이 비어 있습니다: ${value.missingFields.join(', ')}. 사용자에게 물어본 뒤 update_purchase_request_draft로 채우세요.`;
-    return `구매 조건 초안이 저장되었습니다. 사용자가 Web${where}에서 조건을 확인하고 직접 확정해야 검색할 수 있습니다. Agent는 확정할 수 없습니다.`;
+    return `구매 조건 초안이 저장되었습니다. 사용자가 대화에서 이 조건으로 검색을 명시적으로 요청하면 purchase:confirm 권한으로 확정할 수 있습니다. 권한이 없으면 Web${where}에서 직접 확정해야 합니다.`;
   }
   return null;
 }
@@ -135,7 +138,7 @@ function purchaseResponse(request, webUrl) {
     nextQuestions: request.nextQuestions,
     readyForConfirmation,
     humanApprovalRequired: request.status !== 'CONFIRMED',
-    nextAction: request.status === 'CONFIRMED' ? '구매 조건이 확정되었습니다. search_listings로 검색하세요.' : request.readyForConfirmation ? `Web ${webUrl}에서 조건을 검토하고 직접 확정하세요.` : 'nextQuestions에 답해 구매 조건을 보완하세요.',
+    nextAction: request.status === 'CONFIRMED' ? '구매 조건이 확정되었습니다. search_listings로 검색하세요.' : request.readyForConfirmation ? `구매자가 대화에서 이 조건으로 검색을 명시적으로 요청했으면 confirm_purchase_request를 호출하세요. purchase:confirm 권한이 없으면 Web ${webUrl}에서 직접 확정하세요.` : 'nextQuestions에 답해 구매 조건을 보완하세요.',
     apiNextAction: request.nextAction,
     purchaseRequest: request,
   };
@@ -148,7 +151,36 @@ function summarizeSearch(results) {
     total: results.length,
     ...counts,
     ruleVersion: results[0]?.ruleVersion ?? null,
-    note: 'MATCH는 모든 조건 충족, NEEDS_CONFIRMATION은 매물 정보가 없어 판단 불가(정상으로 추정하지 말 것), EXCLUDED는 조건 위반.',
+    note: 'MATCH는 검색 시점의 모든 조건 충족, NEEDS_CONFIRMATION은 정보 부족, EXCLUDED는 조건 위반. 판매자가 가격·상태를 바꿀 수 있으니 구매·연결 결정 직전에 get_listing으로 최신 정보를 확인하고 필요하면 새 requestId로 다시 검색할 것.',
+  };
+}
+
+// Search results are fed back into an AI conversation. Listing photos are data URLs
+// in the API response and can turn a short search into hundreds of KB of text.
+// The listing detail tool and Web UI remain available when a photo is needed.
+function compactSearchResult(result) {
+  const { listing } = result;
+  return {
+    listingId: result.listingId,
+    matchStatus: result.matchStatus,
+    matchedFields: result.matchedFields,
+    unmetFields: result.unmetFields,
+    missingFields: result.missingFields,
+    ruleVersion: result.ruleVersion,
+    listing: {
+      id: listing.id,
+      title: listing.title,
+      category: listing.category,
+      brand: listing.brand,
+      model: listing.model,
+      storageGb: listing.storageGb,
+      condition: listing.condition,
+      priceKrw: listing.priceKrw,
+      status: listing.status,
+      isSample: listing.isSample,
+      publishedAt: listing.publishedAt,
+      updatedAt: listing.updatedAt,
+    },
   };
 }
 
@@ -178,7 +210,7 @@ function suggestFor(error) {
     case 'UNAUTHORIZED': return '토큰이 유효하지 않습니다. 사용자에게 Web에서 토큰을 확인하거나 새로 발급해 달라고 안내하세요.';
     case 'TIMEOUT':
     case 'NETWORK_ERROR': return '백엔드에 연결하지 못했습니다. 잠시 후 같은 requestId로 재시도하고, 계속 실패하면 사용자에게 알리세요.';
-    case 'INVALID_STATE': return '현재 상태에서는 불가능합니다. 사용자가 Web에서 확정·게시했는지 확인한 뒤 다시 시도하세요.';
+    case 'INVALID_STATE': return '현재 상태에서는 불가능합니다. 구매 조건의 최신 상태와 사용자 승인 여부를 확인한 뒤 다시 시도하세요.';
     case 'VALIDATION_ERROR': return 'details의 필드를 확인하고 사용자에게 물어본 뒤 값을 고쳐 다시 호출하세요. 값을 지어내지 마세요.';
     case 'NOT_FOUND': return 'ID를 확인하세요. list_my_* tool로 현재 객체 목록을 다시 조회할 수 있습니다.';
     default: return error.status >= 500 ? '잠시 후 같은 requestId로 재시도하세요.' : '요청을 확인하세요.';
@@ -221,9 +253,10 @@ function stripUndefined(object) {
  * @param webUrl     승인 안내에 넣을 Web 주소
  * @param scopes     이 연결의 권한. null이면 제한 없음(demo). 배열이면 해당 권한의 tool만 등록한다.
  */
-export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET_WEB_URL || '', scopes = null } = {}) {
+export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET_WEB_URL || '', scopes = null,
+  step2 = process.env.AGENT_MARKET_ENABLE_STEP2 === '1' } = {}) {
   if (!api) throw new Error('createAgentMarketServer에는 api가 필요합니다.');
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: instructionsText() });
+  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: instructionsText(step2) });
   const guard = fn => async args => { try { return ok(await fn(args)); } catch (error) { return fail(error); } };
   const has = scope => scopes == null || scopes.includes(scope);
   const register = (scope, name, config, handler) => { if (has(scope)) server.registerTool(name, config, guard(handler)); };
@@ -239,13 +272,17 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
     title: '마켓 이용 규칙',
     description: '가장 먼저 호출한다. Agent가 할 수 있는 일과 없는 일, 판매·구매 흐름, 승인 지점, 재시도 규칙을 돌려준다.',
     inputSchema: {},
-  }, async () => ({ ...MARKET_GUIDE, apiHealth: await api.health(), webUrl: webUrl || null }));
+  }, async () => ({ ...MARKET_GUIDE, step2Enabled: step2,
+    ...(step2 ? { step2AgentCan: ['공개 수요 비공개 초안 작성·수정', '내 매물에 맞는 공개 수요 탐색', '내 알림 조회'],
+      step2HumanOnly: ['구매 수요 공개', '판매자 연결 요청 전송', '구매자 연결 요청 수락·거절'] } : {}),
+    apiHealth: await api.health(), webUrl: webUrl || null }));
 
   register('read', 'browse_listings', {
     title: '공개 매물 둘러보기',
-    description: '구매 조건 없이 ACTIVE 매물을 텍스트로 훑어본다. 시세 파악용. 조건 기반 매칭은 search_listings를 쓴다.',
-    inputSchema: { query: z.string().max(200).optional().describe('모델명 등 검색어') },
-  }, async ({ query }) => ({ listings: await api.listListings(query || '') }));
+    description: '구매 조건 없이 실제 판매자가 등록한 ACTIVE 매물을 조회한다. 시연용 매물은 기본 제외하며 includeSamples=true에서만 표시한다. 조건 기반 매칭은 search_listings를 쓴다.',
+    inputSchema: { query: z.string().max(200).optional().describe('모델명 등 검색어'),
+      includeSamples: z.boolean().optional().describe('시연용 매물도 포함할 때만 true') },
+  }, async ({ query, includeSamples }) => ({ listings: await api.listListings(query || '', includeSamples === true) }));
 
   register('read', 'list_my_listing_drafts', {
     title: '내 판매 초안 목록',
@@ -261,7 +298,7 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
 
   register('read', 'list_my_purchase_requests', {
     title: '내 구매 조건 목록',
-    description: '현재 사용자의 구매 조건(DRAFT/CONFIRMED)을 돌려준다. 사용자가 Web에서 확정했는지 확인할 때 쓴다.',
+    description: '현재 사용자의 구매 조건(DRAFT/CONFIRMED)을 돌려준다. Web 또는 대화에서 조건이 확정되었는지 확인할 때 쓴다.',
     inputSchema: {},
   }, async () => ({ purchaseRequests: (await api.myPurchaseRequests()).map(r => purchaseResponse(r, webUrl)) }));
 
@@ -276,9 +313,19 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
     preferredPurchaseConditions: ['modelQuery', 'storageGb'],
   }));
 
+  register('read', 'review_listing_details', {
+    title: '판매 정보 확인 질문과 가격 근거',
+    description: '판매자의 모델·용량·상태·사진·설명 입력을 점검해 다음 질문을 제안한다. 동일 모델의 등록 희망가가 3건 이상일 때만 참고 범위를 제공한다. 사진의 진위를 AI로 판별하거나 실제 거래 시세를 보증하지 않는다. Agent는 가격을 임의로 확정하지 말 것.',
+    inputSchema: { category: CATEGORY.optional(), model: z.string().max(200).optional(),
+      storageGb: z.number().int().positive().optional(), condition: CONDITION.optional(),
+      priceKrw: z.number().int().positive().optional(), hasPhoto: z.boolean().optional(),
+      hasDescription: z.boolean().optional(), hasBatteryDetails: z.boolean().optional(),
+      includeSamples: z.boolean().optional().describe('시연용 가격 계산 예시를 포함할 때만 true') },
+  }, fields => api.listingAdvice(fields));
+
   register('read', 'get_listing', {
     title: '매물 상세',
-    description: '후보 매물의 구조화 필드와 이미지 링크를 돌려준다. missingFields에 있는 항목은 판매자가 입력하지 않은 것이므로 정상으로 추정하지 않는다.',
+    description: '후보 매물의 현재 가격·상태·updatedAt을 다시 조회한다. 이전 검색 결과는 당시의 스냅샷이며 판매자가 정보를 바꿀 수 있다. 구매 또는 연결 결정 전 최신 값을 확인한다. missingFields는 정상으로 추정하지 않는다.',
     inputSchema: { listingId: UUID },
   }, ({ listingId }) => api.getListing(listingId));
 
@@ -307,7 +354,7 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
 
   register('purchase:write', 'create_purchase_request_draft', {
     title: '구매 조건 초안 생성',
-    description: '구매 의도를 구조화한다. naturalLanguageRequest에 사용자의 말을 그대로 넣고, 거기서 이미 확실한 조건만 knownConstraints에 넣는다(추정 금지). 응답의 nextQuestions 순서(카테고리 → 예산 → 모델 → 용량)로 질문한다. 확정은 사람이 Web에서 한다.',
+    description: '구매 의도를 구조화한다. naturalLanguageRequest에 사용자의 말을 그대로 넣고, 이미 확실한 조건만 knownConstraints에 넣는다(추정 금지). 응답의 nextQuestions 순서로 질문한다. 구매자가 명시적으로 검색을 요청하면 별도 권한으로 Claude 대화에서 확정할 수 있다.',
     inputSchema: {
       category: CATEGORY.nullable().optional(),
       naturalLanguageRequest: z.string().max(10000).optional().describe('사용자의 원문 요청. 예: 100만 원 이하 태블릿 찾아줘'),
@@ -322,21 +369,78 @@ export function createAgentMarketServer({ api, webUrl = process.env.AGENT_MARKET
 
   register('purchase:write', 'update_purchase_request_draft', {
     title: '구매 조건 초안 수정',
-    description: '구매자 답변을 patch로 반영한다. 확정된 조건을 수정하면 DRAFT로 돌아가 다시 확정이 필요하다. readyForConfirmation이 true면 사람이 Web에서 확정할 수 있다.',
+    description: '구매자 답변을 patch로 반영한다. 확정된 조건을 수정하면 DRAFT로 돌아가 다시 확정이 필요하다. readyForConfirmation이 true면 사용자의 명시적인 검색 요청 뒤 Web 또는 권한 있는 Agent에서 확정할 수 있다.',
     inputSchema: { requestId: UUID.describe('PurchaseRequest ID'), patch: z.object({ ...purchaseConstraintsShape, naturalLanguageRequest: z.string().max(10000).optional(), knownConstraints: z.object(purchaseConstraintsShape).optional(), skippedQuestionFields: z.array(z.enum(['modelQuery', 'storageGb', 'conditionPreferences'])).max(3).optional() }), idempotencyKey: requestIdField },
   }, async ({ requestId, patch, idempotencyKey }) => {
     const request = await api.updatePurchaseRequest(requestId, stripUndefined(patch), idempotencyKey);
     return { ...purchaseResponse(request, webUrl), updatedRequest: request };
   });
 
+  register('purchase:confirm', 'confirm_purchase_request', {
+    title: '구매자가 요청한 조건 확정',
+    description: '사용자가 대화에서 이 조건으로 검색을 명시적으로 요청한 경우에만 호출한다. 방금 보여준 구매 조건 초안의 updatedAt을 expectedUpdatedAt에 넣고, 실제 사용자 문장을 userSearchRequest에 그대로 넣는다. 수락·게시·결제 권한은 없다. 확정한 뒤 search_listings를 호출한다.',
+    inputSchema: { purchaseRequestId: UUID,
+      expectedUpdatedAt: z.string().datetime().describe('최신 구매 조건 초안의 updatedAt'),
+      userSearchRequest: z.string().min(1).max(500).describe('사용자가 실제로 말한 명시적 검색 요청 문장'),
+      requestId: requestIdField },
+  }, async ({ purchaseRequestId, expectedUpdatedAt, userSearchRequest, requestId }) => {
+    const request = await api.confirmPurchaseRequest(purchaseRequestId, { expectedUpdatedAt, userSearchRequest }, requestId);
+    return { ...purchaseResponse(request, webUrl), confirmedRequest: request };
+  });
+
   register('search', 'search_listings', {
     title: '확정된 구매 조건으로 검색·매칭',
-    description: '사람이 Web에서 확정한 PurchaseRequest로 자체 DB를 Rule-based 매칭한다. 확정 전이면 INVALID_STATE로 거부된다. 결과의 NEEDS_CONFIRMATION은 정보 부족이지 적합이 아니다.',
-    inputSchema: { purchaseRequestId: UUID, requestId: requestIdField },
-  }, async ({ purchaseRequestId, requestId }) => {
-    const results = await api.search(purchaseRequestId, requestId);
-    return { purchaseRequestId, summary: summarizeSearch(results), results };
+    description: '구매자가 Web 또는 대화에서 검색을 승인해 확정한 PurchaseRequest로 매물을 규칙 기반 매칭한다. 시연용은 기본 제외하며 includeSamples=true에서만 포함한다. 확정 전이면 INVALID_STATE로 거부된다.',
+    inputSchema: { purchaseRequestId: UUID, requestId: requestIdField,
+      includeSamples: z.boolean().optional().describe('시연용 매물도 포함할 때만 true') },
+  }, async ({ purchaseRequestId, requestId, includeSamples }) => {
+    const results = await api.search(purchaseRequestId, requestId, includeSamples === true);
+    return { purchaseRequestId, summary: summarizeSearch(results), results: results.map(compactSearchResult) };
   });
+
+  // Step 2 tools are opt-in. Publishing, sending connection requests and accepting them remain Web-only.
+  if (step2) {
+    register('read', 'list_my_public_demands', {
+      title: '내 공개 구매 수요 목록',
+      description: '비공개 초안과 공개 상태를 확인한다. 다른 구매자의 비공개 조건은 볼 수 없다.',
+      inputSchema: {},
+    }, async () => ({ demands: await api.myPublicDemands() }));
+
+    register('purchase:write', 'create_public_demand_draft', {
+      title: '공개 구매 수요 초안 제안',
+      description: '사람이 확정한 구매 조건에서 비공개 초안을 만든다. 공개는 반드시 구매자가 Web에서 직접 승인한다.',
+      inputSchema: { purchaseRequestId: UUID, requestId: requestIdField },
+    }, async ({ purchaseRequestId, requestId }) => {
+      const demand = await api.createPublicDemandDraft(purchaseRequestId, requestId);
+      return { demand, humanApprovalRequired: true, nextAction: `Web ${webUrl}의 구해요·알림 화면에서 공개 내용을 검토하고 직접 승인하세요.` };
+    });
+
+    register('purchase:write', 'update_public_demand_draft', {
+      title: '공개 구매 수요 초안 수정',
+      description: '비공개 초안의 공개 필드만 수정한다. Agent는 공개 중인 수요를 수정하거나 공개할 수 없다.',
+      inputSchema: { demandId: UUID, patch: z.object({
+        title: z.string().min(1).max(200).optional(), description: z.string().max(2000).nullable().optional(),
+        modelQuery: z.string().max(200).nullable().optional(), storageGb: z.number().int().positive().nullable().optional(),
+        minBudgetKrw: z.number().int().positive().nullable().optional(), maxBudgetKrw: z.number().int().positive().optional(),
+        conditionPreferences: z.array(CONDITION).max(3).optional(), expiresAt: z.string().datetime().nullable().optional(),
+      }), requestId: requestIdField },
+    }, async ({ demandId, patch, requestId }) => {
+      const demand = await api.updatePublicDemandDraft(demandId, stripUndefined(patch), requestId);
+      return { demand, humanApprovalRequired: true, nextAction: `Web ${webUrl}에서 구매자가 직접 공개를 승인해야 합니다.` };
+    });
+
+    register('read', 'browse_matching_public_demands', {
+      title: '내 매물과 맞는 공개 수요 탐색',
+      description: '본인의 ACTIVE Listing에 맞는 공개 수요만 찾는다. 구매자의 연락처·정확한 위치는 제공하지 않는다.',
+      inputSchema: { listingId: UUID },
+    }, async ({ listingId }) => ({ listingId, matches: await api.matchingPublicDemands(listingId) }));
+
+    register('read', 'list_my_notifications', {
+      title: '내 매칭·연결 알림 조회',
+      description: '새 매칭과 연결 요청의 알림을 조회한다. 연결 요청 전송·수락은 사람이 Web에서 한다.',
+      inputSchema: {},
+    }, async () => ({ notifications: await api.myNotifications() }));
+  }
 
   return server;
 }
